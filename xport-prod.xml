@@ -1,0 +1,638 @@
+<?xml version="1.0" encoding="UTF8"?>
+<Export generator="Cache" version="25">
+<Class name="XPort.API">
+<Super>Frontier.Router</Super>
+<TimeCreated>64583,57726.057897</TimeCreated>
+
+<Parameter name="HandleCorsRequest">
+<Default>true</Default>
+</Parameter>
+
+<Parameter name="UseSession">
+<Type>INTEGER</Type>
+<Default>1</Default>
+</Parameter>
+
+<XData name="UrlMap">
+<XMLNamespace>http://github.com/rfns/xport</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/ping" Method="GET" UseAuth="false" Call="Ping"/>
+<Map Prefix="/:namespace/:project" Forward="XPort.API.Project"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="OnSetup">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  // Disables path normalization and tries to resolve using the received path syntax.
+  set ^||Port.Internals.Settings("remote") = 1  
+  
+  set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()   
+  
+  set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
+   "realm": "source",
+   "validator": ($classname()_":ValidateCredentials"),
+   "required": true
+  })
+  
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ValidateCredentials">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>login:%String,password:%String,*found:%Boolean=1,*httpStatus:%String,*user:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    
+  if $System.Security.CheckUserPermission(login, "%Development", "USE") {
+    set found = $System.Security.Login(login, password)
+  } else {
+    set httpStatus = ..#HTTP403FORBIDDEN
+    return $$$ERROR($$$RequiresRoleForConnection, "%Development")
+  }  
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Ping">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  do %frontier.Raw()
+  return ""
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="XPort.API.Project">
+<Super>Frontier.Router</Super>
+<TimeCreated>64583,55999.0225</TimeCreated>
+
+<Parameter name="HandleCorsRequest">
+<Default>true</Default>
+</Parameter>
+
+<XData name="UrlMap">
+<XMLNamespace>http://github.com/rfns/xport</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+<Route Url="/" Method="POST" Call="CreateProject"/>
+<Route Url="/xml" Method="GET" Call="GetProjectXML" />
+<Map Prefix="/items" Forward="XPort.API.Project.Items"/>
+</Routes>
+]]></Data>
+</XData>
+
+<Method name="GetProjectXML">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%Studio.Project</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+  if '$isobject(project) return %frontier.ThrowException("A project with the name '"_%frontier.RouteParameters("project")_"' does not exist.")
+  $$$ThrowOnError(project.ExportToStream("/nodisplay", 0,.errors,,"UTF8"))
+  return project.Stream
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="XPort.API.Project.Items">
+<IncludeCode>portutils,xport</IncludeCode>
+<Super>Frontier.Router</Super>
+<TimeCreated>64741,32616.995698</TimeCreated>
+
+<XData name="UrlMap">
+<Data><![CDATA[
+<Routes>  
+  <Route Url="/fetch"  Method="POST" Call="FetchItemsSourceCode"/>
+  <Route Url="/publish" Method="POST" Call="PublishItems"/>
+  <Route Url="/remove" Method="POST" Call="RemoveItems"/>
+  <Route Url="/delete" Method="POST" Call="DeleteItems"/>
+  <Route Url="/list" Method="GET" Call="ListProjectItems"/>
+ </Routes>
+]]></Data>
+</XData>
+
+<Method name="DeleteItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%Studio.Project,payload:%DynamicObject</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+ 
+  set iSC = $$$OK  
+  
+  set errorOnDelete = []
+  set successOnDelete = []
+    
+  for i=0:1:payload.items.%Size() - 1 {
+    try {
+      set sourcePath = payload.items.%Get(i)
+      set workspace = ##class(Port.Util).ResolveWorkspaceFromPath(sourcePath)
+      set type = ##class(Port.Util).ExtractType(sourcePath, workspace)      
+      
+      set itemName = ##class(Port.Util).MountItemNameFromSourcePath(sourcePath, namespace)
+      if itemName = "" $$$ThrowOnError($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))      
+      
+      set ubiquityList = ##class(Port.Util).ListConflicts(project.Name, itemName, type)
+      
+      if ubiquityList '= "" {
+        $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(ubiquityList, ", ")))
+      }
+      
+      if type = "WEB" {
+        $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .targetAbsolutePath))
+        $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(targetAbsolutePath))        
+        set itemName = targetAbsolutePath     
+      } elseif ##class(Port.Util).IsRoutine(itemName) {
+        $$$ThrowOnError(##class(%RoutineMgr).Delete(itemName))
+      } elseif type = "CLS" {
+        $$$ThrowOnError($System.OBJ.Delete(itemName, "/nodisplay"))
+      }
+      do successOnDelete.%Push(itemName)
+    } catch ex {
+      set error = ##class(Frontier.Exception).ToDynamicObject(ex)
+      set error.name = itemName
+      do errorOnDelete.%Push(error)
+    }   
+  }   
+  
+  $$$ThrowOnError(project.Check())
+  $$$ThrowOnError(project.%Save())  
+  
+  set result = {
+    "oks": (errorOnDelete),
+    "errors": (successOnDelete)
+  }
+  
+  return result
+]]></Implementation>
+</Method>
+
+<Method name="RemoveItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%Studio.Project,payload:%DynamicArray</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    
+  set successOnRemove = []
+  set errorOnRemove = []  
+  
+  for i=0:1:payload.items.%Size() - 1 {
+    set sourcePath = payload.items.%Get(i)
+    set itemName = ##class(Port.Util).MountItemNameFromSourcePath(sourcePath, namespace)
+    
+    set sc = project.RemoveItem(itemName)
+    
+    if $$$ISERR(sc) {
+      set error = ##class(Frontier.Exception).ToDynamicObject($$$StatusToException(sc)).error
+      set error.name = itemName
+      do errorOnRemove.%Push(error)
+    } else {  
+      do successOnRemove.%Push(itemName)
+    }
+  }
+  
+  $$$ThrowOnError(project.%Save())
+  
+  set result = {
+    "oks": (errorOnRemove),
+    "errors": (successOnRemove)
+  }  
+  
+  return result
+]]></Implementation>
+</Method>
+
+<Method name="PublishItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%Studio.Project,payload:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 
+  set errorOnPublish = []
+  set publishedItems = []
+  set compileList = ""
+  set compileErrors = ""
+  set sc = $$$OK
+  
+  set warning = ""
+  set sc = $$$ERROR($$$GeneralError, "No valid item has been found.")
+  
+  if '$isobject(project) {
+    set projectCandidateName = %frontier.RouteParameters("project")
+    set warning = "Project "_projectCandidateName_" did not exist and was created with the name matching your workspace folder."
+    set project = ##class(%Studio.Project).%New()
+    set project.Name = projectCandidateName
+  }
+  
+  set payloadIterator = payload.files.%GetIterator()
+  
+  while payloadIterator.%GetNext(.i, .file) {
+    try {
+      set sc = $$$OK
+      set source = ""
+      set itemName = ##class(Port.Util).MountItemNameFromSourcePath(file.path, namespace)
+      set workspace = ##class(Port.Util).ResolveWorkspaceFromPath(file.path)
+      set type = ##class(Port.Util).ExtractType(file.path, workspace)
+      set fileName = ##class(%File).GetFilename(file.path)
+      
+      if itemName = "" {
+        $$$ThrowOnError($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
+      }
+      
+      set ubiquityList = ##class(Port.Util).ListConflicts(project.Name, itemName)
+      
+      if ubiquityList '= "" {
+        $$$ThrowOnError($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(ubiquityList), project.Name))
+      }
+      
+      set itemId = ##class(Port.Util).MountIdFromName(itemName, project.Name)
+      set itemExists = project.Items.IsDefined(itemId)
+      set itemType = ##class(Port.Util).ResolveItemExtension(itemName)  
+      set code = file.content
+      
+      if '$isobject(code) {
+        do %frontier.ThrowException("'content' array was not provided for "_itemName)
+      }
+      
+      set type = ##class(Port.Util).ResolveItemExtension(file.path)
+      set iterator = code.%GetIterator()           
+      
+      while iterator.%GetNext(.key, .line) { 
+        set source(0) = key + 1
+        set source(source(0)) = line
+      }      
+      
+      do ##class(%RoutineMgr).LockItem(itemName, 1)
+      
+      if ##class(Port.Util).IsRoutine(itemName) {
+        new $namespace
+        set $namespace = namespace
+      
+        if itemExists set routine = ##class(%RoutineMgr).%OpenId(itemName)
+        else  set routine = ##class(%RoutineMgr).%New(itemName)
+    
+        $$$ThrowOnError($$WriteToStream(routine.Code))
+        $$$ThrowOnError(routine.%Save())
+        
+        set compileList(itemName) = ""
+      } elseif type = "CLS" {
+        // Checks if client is providing correct item name and class definition.
+        $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
+        
+        set stream = ##class(%Stream.GlobalCharacter).%New()
+        $$$ThrowOnError($$WriteToStream(stream))
+        
+        $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
+        set compileList(itemName) = ""
+      } else {      
+        $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .physicalPath))      
+        $$$ThrowOnError(##class(Port.Util).CreateMissingPath(##class(%File).GetDirectory(physicalPath)))
+        
+        set remoteFile = ##class(%Stream.FileCharacter).%New()
+        
+        $$$ThrowOnError(remoteFile.LinkToFile(physicalPath))
+        $$$ThrowOnError($$WriteToStream(remoteFile))
+        $$$ThrowOnError(remoteFile.%Save())      
+        
+        // Static files are normally not compiled, with the exception of CSP files.
+        if type = "CSP" set compileList(itemName) = ""           
+      }
+      
+      if $order(compileList("")) '= "" {
+        do $System.OBJ.CompileList(.compileList, "/nodisplay", .compileErrors)
+        
+        if compileErrors > 0 { 
+          for c=1:1:compileErrors {
+            set sc = $$$ADDSC(sc, $$$ERROR(compileErrors(c, "code"), compileErrors(c)))
+          }
+          $$$ThrowOnError(sc)
+        }
+      }            
+      
+      set pSC = project.AddItem(itemName)
+      if $$$GETERRORCODE(pSC) '= $$$ProjectIncludesPackage {
+        // We don't care if class is owned by a package or not, AddItem checks and prevents item duplication, that's enough for us.
+        $$$ThrowOnError(pSC)
+      }
+      $$$ThrowOnError(..RetrieveItemSourceCode(namespace, workspace, itemName, .code))
+      $$$ThrowOnError(project.%Save())
+      
+      do publishedItems.%Push({
+        "item": (itemName),
+        "content": (code),
+        "path": (file.path)
+      })
+    } catch ex {
+      set error = ##class(Frontier.Exception).ToDynamicObject(ex)
+      set error.name = itemName
+      do errorOnPublish.%Push(error)      
+    }    
+  }   
+  
+  do ##class(%RoutineMgr).LockItem(itemName, 0)  
+  
+  return {
+    "oks": (publishedItems),
+    "errors": (errorOnPublish),
+    "warning": ($case(warning, "": "null", : warning))
+  }      
+
+WriteToStream(stream)
+  set sc = $$$OK
+  do stream.Clear()
+  
+  for i=1:1:source(0) {
+    if i '= source(0) || (i = source(0) && ($extract(source(i), *-2, *) = $char(13,10))) {
+      $$$ReturnOnError(stream.WriteLine(source(i)))
+    } else {
+      $$$ReturnOnError(stream.Write(source(i)))
+    }
+  }
+  do stream.Rewind()
+  return $$$OK
+  
+AssertClassDefinitionMatch(className)
+  for c=1:1:source(0) {    
+    if $$$lcase($extract(source(c), 1, 6)) = "class " {
+      set definingClass = $piece(source(c), " ", 2, 2)
+      set className = $piece(className, ".", 1, *-1)
+      
+      if definingClass '= className {
+        // We cannot allow a class that mismatches its own name to be saved.
+        return $$$ERROR($$$GeneralError, $$$FormatText("Attempt to define class with name '%1' while item name is '%2'. Both item and class names must match.", definingClass, className))
+      }
+      return $$$OK
+    }    
+  }
+  if c = source(0) return $$$ERROR($$$GeneralError, $$$FormatText("Item '%1' is not a valid class.", className))
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ListProjectItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%String</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<Implementation><![CDATA[
+  return {
+    "items": (%frontier.SQL.Prepare("%Studio.Project:ProjectItemsList").Parameters(project, 1))
+  }
+]]></Implementation>
+</Method>
+
+<Method name="FetchItemsSourceCode">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%Studio.Project,payload:%DynamicObject</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set result = []
+  set code = ""
+  set all = 0  
+  
+  set targets = payload.items  
+  
+  if '$isobject(targets) {
+    return %frontier.ThrowException("'targets' array was not provided within the payload.")
+  }
+    
+  if payload.items.%Get(0) = "*" {
+    set all = 1
+    do payload.items.%Pop()    
+    
+    set s = ##class(%SQL.Statement).%New()
+    $$$ThrowOnError(s.%PrepareClassQuery("%Studio.Project", "ProjectItemsList"))
+    set r = s.%Execute(project.Name)
+    
+    while r.%Next(.sc) {   
+      $$$ThrowOnError(sc)
+      set projectItemName = r.%Get("Name")
+      set projectItemType = r.%Get("Type")
+      $$$ThrowOnError(##class(%Studio.Project).NormalizeName(.projectItemName, .projectItemType))
+      if projectItemType = "CLS" {
+        do payload.items.%Push(projectItemName_"."_projectItemType)
+      } else {
+        do payload.items.%Push(projectItemName)
+      }
+    }
+  }
+  
+  set success = []
+  set errors = []
+  
+  for i=0:1:payload.items.%Size() - 1 {
+    try {
+      set itemName = payload.items.%Get(i)    
+      if itemName [ payload.workspace {
+        set itemName = ##class(Port.Util).MountItemNameFromSourcePath(itemName, namespace)    
+      }
+    
+      set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, payload.workspace)
+      
+      if all || ('all && ##class(Port.Util).ExistsInProject(project.Name, itemName, "")) {
+         $$$ThrowOnError(..RetrieveItemSourceCode(namespace, payload.workspace, itemName, .code, externalPath))
+      } else {
+        $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or simply does not exist."))
+      }
+      
+      set lastChange = $extract($replace(##class(%RoutineMgr).TS(itemName), " ", "T"), 1, *-3)_"Z"
+        
+      do success.%Push({
+        "name": (itemName),
+        "content": (code),
+        "lastChange": (##class(Port.SourceControl.Log).GetLastChange(project.Name, itemName)),
+        "path": (externalPath),
+        "directory": (##class(%File).GetDirectory(externalPath)),
+        "fileName": (##class(%File).GetFilename(externalPath))
+      })    
+    } catch ex {
+      set error = ##class(Frontier.Exception).ToDynamicObject(ex)
+      set error.name = itemName
+      do errors.%Push(error)
+    }
+  }
+  
+  return { 
+    "oks": (success),
+    "errors": (errors)
+  }
+]]></Implementation>
+</Method>
+
+<Method name="RetrieveItemSourceCode">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,workspacePath:%String,itemName:%String,code:%Stream.Object,*externalPath:%String=""</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+  #dim stream As %Stream.GlobalCharacter      
+  
+  if externalPath = "" {
+    set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, workspacePath)
+  }     
+  
+  set pathType = ##class(Port.Util).ExtractType(externalPath, workspacePath)
+  
+  if pathType = "CLS" {
+    $$$ThrowOnError(##class(%Compiler.UDL.TextServices).GetTextAsStream(namespace, itemName, .content))
+    set code = $$StreamToArray(content)
+  } elseif ##class(Port.Util).IsRoutine(itemName) {
+    set routine = ##class(%RoutineMgr).%OpenId(itemName)
+    if '$isobject(routine) return $$$ERROR($$$RoutineDoesNotExist, itemName)
+    set code = $$StreamToArray(routine.Code)
+  } else {
+    set file = ##class(%Stream.FileCharacter).%New()
+    $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .physicalPath, namespace))
+    $$$ThrowOnError(file.LinkToFile(physicalPath))
+    set code = $$StreamToArray(file)
+  }   
+  
+  return $$$OK  
+  
+StreamToArray(stream)
+  set array = []
+  
+  do stream.Rewind()
+  
+  while 'stream.AtEnd {
+    do array.%Push(stream.ReadLine())    
+  }
+  return array
+]]></Implementation>
+</Method>
+
+<Method name="T">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  do ##class(Frontier.DevTools.FakeAgent).Request("/api/xport/DEV/xport-testing/items/fetch", "POST", {
+    "workspace": "c:\\CacheProjects\\xport-testing",
+    "items": [ "c:\\CacheProjects\\xport-testing\\cls\\Whatever\\Testing.cls" ]
+  }, "Basic "_$System.Encryption.Base64Encode("_system:SYS"), 1)
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="XPort.Util.FileRemover">
+<IncludeCode>portutils</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>64744,50300.86048</TimeCreated>
+
+<Property name="Entries">
+<Type>%String</Type>
+<Collection>list</Collection>
+</Property>
+
+<Property name="Statement">
+<Type>%SQL.Statement</Type>
+</Property>
+
+<Property name="AppPathCache">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Method name="%OnNew">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Statement = ##class(%SQL.Statement).%New()
+  do ..Statement.%PrepareClassQuery("%File", "FileSet")
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AddFileToRemoval">
+<FormalSpec>filePath:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return ..Entries.Insert(##class(%File).NormalizeFilename(filePath))
+]]></Implementation>
+</Method>
+
+<Method name="Run">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  for i=1:1:..Entries.Count() {
+    set filePath = ..Entries.GetAt(i)
+    set sc = ..Remove(filePath)
+    if $$$ISERR(sc) return sc
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Remove">
+<FormalSpec>path:%String,hasContent:%Boolean=0</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    
+  if path = ..GetWebApplicationPath(path) return $$$OK 
+  
+  // There's a bug when using Exists for directories, it seems to assume that a directory is also a file.
+  // To workaround this DirectoryExists is also applied because it WILL return 0.
+  if '##class(%File).DirectoryExists(path) && ##class(%File).Exists(path) { 
+    do ##class(%File).Delete(path) 
+  } elseif hasContent = 0 { 
+    do ##class(%File).RemoveDirectory(path)
+  }
+    
+  set path = $piece(path, $$$OSSlash, 1, *-1)
+  set r = ..Statement.%Execute(path)
+  set hasContent = 0
+    
+  if r.%Next(.sc) {
+    if $$$ISERR(sc) return sc
+    set hasContent = 1
+  }  
+  return ..Remove(path, hasContent)
+]]></Implementation>
+</Method>
+
+<Method name="RemoveOne">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>filePath:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set remover = ..%New()
+  $$$QuitOnError(remover.AddFileToRemoval(filePath))
+  return remover.Run()
+]]></Implementation>
+</Method>
+
+<Method name="GetWebApplicationPath">
+<FormalSpec>filePath:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+     
+  if ..AppPathCache '= "" return ..AppPathCache
+  
+  new $namespace 
+  set $namespace = "%SYS"
+  
+  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 1 Path FROM SECURITY.APPLICATIONS WHERE ? %STARTSWITH Path ORDER BY LEN(PATH) DESC", filePath)
+  if rows.%Next() {
+    set path = ##class(%File).NormalizeFilename(rows.%Get("Path"))
+    set ..AppPathCache = path
+    return path
+  }
+  return ""
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Routine name="xport" type="INC"><![CDATA[
+#define StatusToException(%sc)  ##class(%Exception.StatusException).CreateFromStatus(%sc)
+#define ContinueOnError(%sc) set sc = %sc continue:$$$ISERR(sc)
+#define ReturnOnError(%sc) set sc = %sc return:$$$ISERR(sc) sc
+#define AddAndContinue(%sc) set cSC = %sc set sc = $$$ADDSC(sc, cSC) continue:$$$ISERR(cSC)
+]]></Routine>
+</Export>
