@@ -17,7 +17,7 @@ ClassMethod OnSetup() As %Status
 {
   
   // Disables path normalization and tries to resolve using the received path syntax.
-  set ^||Port.Internals.Settings("remote") = 1  
+  set ^||Port.Internals.Configuration("remote") = 1  
   
   set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()   
   
@@ -33,10 +33,13 @@ ClassMethod OnSetup() As %Status
 
 ClassMethod ValidateCredentials(login As %String, password As %String, Output found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
+  set found = $System.Security.Login(login, password)
+  if 'found {
+    set httpStatus = ..#HTTP403FORBIDDEN
+    return $$$ERROR($$$InvalidUsernameOrPassword)
+  }
     
-  if $System.Security.CheckUserPermission(login, "%Development", "USE") {
-    set found = $System.Security.Login(login, password)
-  } else {
+  if '$System.Security.CheckUserPermission(login, "%Development", "USE") {
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$RequiresRoleForConnection, "%Development")
   }  

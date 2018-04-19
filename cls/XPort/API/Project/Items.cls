@@ -14,9 +14,11 @@ XData UrlMap
  </Routes>
 }
 
-ClassMethod DeleteItems(namespace As %String, project As %Studio.Project, payload As %DynamicObject) As %String
+ClassMethod DeleteItems(namespace As %String, project As %String, payload As %DynamicObject) As %String
 {
  
+  set project = ##class(XPort.Util.NamespaceCall).GetProject(namespace, project)
+  
   set iSC = $$$OK  
   
   set errorOnDelete = []
@@ -42,9 +44,8 @@ ClassMethod DeleteItems(namespace As %String, project As %Studio.Project, payloa
         $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(targetAbsolutePath))        
         set itemName = targetAbsolutePath     
       } elseif ##class(Port.Util).IsRoutine(itemName) {
+        if type = "CLS" set itemName = itemName_".CLS"
         $$$ThrowOnError(##class(%RoutineMgr).Delete(itemName))
-      } elseif type = "CLS" {
-        $$$ThrowOnError($System.OBJ.Delete(itemName, "/nodisplay"))
       }
       do successOnDelete.%Push(itemName)
     } catch ex {
@@ -58,16 +59,18 @@ ClassMethod DeleteItems(namespace As %String, project As %Studio.Project, payloa
   $$$ThrowOnError(project.%Save())  
   
   set result = {
-    "oks": (errorOnDelete),
-    "errors": (successOnDelete)
+    "oks": (successOnDelete),
+    "errors": (errorOnDelete)
   }
   
   return result
 }
 
-ClassMethod RemoveItems(namespace As %String, project As %Studio.Project, payload As %DynamicArray) As %Status
+ClassMethod RemoveItems(namespace As %String, project As %String, payload As %DynamicArray) As %Status
 {
     
+  set project = ##class(XPort.Util.NamespaceCall).GetProject(namespace, project)
+  
   set successOnRemove = []
   set errorOnRemove = []  
   
@@ -89,16 +92,18 @@ ClassMethod RemoveItems(namespace As %String, project As %Studio.Project, payloa
   $$$ThrowOnError(project.%Save())
   
   set result = {
-    "oks": (errorOnRemove),
-    "errors": (successOnRemove)
+    "oks": (successOnRemove),
+    "errors": (errorOnRemove)
   }  
   
   return result
 }
 
-ClassMethod PublishItems(namespace As %String, project As %Studio.Project, payload As %DynamicObject) As %Status
+ClassMethod PublishItems(namespace As %String, project As %String, payload As %DynamicObject) As %Status
 {
- 
+     
+  set project = ##class(XPort.Util.NamespaceCall).GetProject(namespace, project, 1)
+  
   set errorOnPublish = []
   set publishedItems = []
   set compileList = ""
@@ -106,11 +111,11 @@ ClassMethod PublishItems(namespace As %String, project As %Studio.Project, paylo
   set sc = $$$OK
   
   set warning = ""
-  set sc = $$$ERROR($$$GeneralError, "No valid item has been found.")
+  set sc = $$$ERROR($$$GeneralError, "No valid item has been found.")  
   
   if '$isobject(project) {
     set projectCandidateName = %frontier.RouteParameters("project")
-    set warning = "Project "_projectCandidateName_" did not exist and was created with the name matching your workspace folder."
+    set warning = "Project "_projectCandidateName_" does not exist and will be created with the same name as this workspace folder, but only after the items are published."
     set project = ##class(%Studio.Project).%New()
     set project.Name = projectCandidateName
   }
@@ -153,14 +158,10 @@ ClassMethod PublishItems(namespace As %String, project As %Studio.Project, paylo
         set source(source(0)) = line
       }      
       
-      do ##class(%RoutineMgr).LockItem(itemName, 1)
+      do ##class(XPort.Util.NamespaceCall).SetItemLock(namespace, itemName, 1)
       
       if ##class(Port.Util).IsRoutine(itemName) {
-        new $namespace
-        set $namespace = namespace
-      
-        if itemExists set routine = ##class(%RoutineMgr).%OpenId(itemName)
-        else  set routine = ##class(%RoutineMgr).%New(itemName)
+        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)
     
         $$$ThrowOnError($$WriteToStream(routine.Code))
         $$$ThrowOnError(routine.%Save())
@@ -189,15 +190,8 @@ ClassMethod PublishItems(namespace As %String, project As %Studio.Project, paylo
         if type = "CSP" set compileList(itemName) = ""           
       }
       
-      if $order(compileList("")) '= "" {
-        do $System.OBJ.CompileList(.compileList, "/nodisplay", .compileErrors)
-        
-        if compileErrors > 0 { 
-          for c=1:1:compileErrors {
-            set sc = $$$ADDSC(sc, $$$ERROR(compileErrors(c, "code"), compileErrors(c)))
-          }
-          $$$ThrowOnError(sc)
-        }
+      if $order(compileList("")) '= "" {        
+        $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList))          
       }            
       
       set pSC = project.AddItem(itemName)
@@ -206,7 +200,7 @@ ClassMethod PublishItems(namespace As %String, project As %Studio.Project, paylo
         $$$ThrowOnError(pSC)
       }
       $$$ThrowOnError(..RetrieveItemSourceCode(namespace, workspace, itemName, .code))
-      $$$ThrowOnError(project.%Save())
+      $$$ThrowOnError(project.%Save())      
       
       do publishedItems.%Push({
         "item": (itemName),
@@ -220,7 +214,7 @@ ClassMethod PublishItems(namespace As %String, project As %Studio.Project, paylo
     }    
   }   
   
-  do ##class(%RoutineMgr).LockItem(itemName, 0)  
+  do ##class(XPort.Util.NamespaceCall).SetItemLock(namespace, itemName, 0)
   
   return {
     "oks": (publishedItems),
@@ -266,8 +260,11 @@ ClassMethod ListProjectItems(namespace As %String, project As %String) As %Dynam
   }
 }
 
-ClassMethod FetchItemsSourceCode(namespace As %String, project As %Studio.Project, payload As %DynamicObject) As %DynamicObject
+ClassMethod FetchItemsSourceCode(namespace As %String, project As %String, payload As %DynamicObject) As %DynamicObject
 {
+ 
+  set project = ##class(XPort.Util.NamespaceCall).GetProject(namespace, project)
+  
   set result = []
   set code = ""
   set all = 0  
@@ -280,23 +277,7 @@ ClassMethod FetchItemsSourceCode(namespace As %String, project As %Studio.Projec
     
   if payload.items.%Get(0) = "*" {
     set all = 1
-    do payload.items.%Pop()    
-    
-    set s = ##class(%SQL.Statement).%New()
-    $$$ThrowOnError(s.%PrepareClassQuery("%Studio.Project", "ProjectItemsList"))
-    set r = s.%Execute(project.Name)
-    
-    while r.%Next(.sc) {   
-      $$$ThrowOnError(sc)
-      set projectItemName = r.%Get("Name")
-      set projectItemType = r.%Get("Type")
-      $$$ThrowOnError(##class(%Studio.Project).NormalizeName(.projectItemName, .projectItemType))
-      if projectItemType = "CLS" {
-        do payload.items.%Push(projectItemName_"."_projectItemType)
-      } else {
-        do payload.items.%Push(projectItemName)
-      }
-    }
+    set payload.items = ##class(XPort.Util.NamespaceCall).GetAllProjectItems(namespace, project.Name)
   }
   
   set success = []
@@ -311,20 +292,17 @@ ClassMethod FetchItemsSourceCode(namespace As %String, project As %Studio.Projec
     
       set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, payload.workspace)
       
-      if all || ('all && ##class(Port.Util).ExistsInProject(project.Name, itemName, "")) {
+      if all || ('all && ##class(Port.Util).ExistsInProject(project.Name, itemName, "", namespace)) {
          $$$ThrowOnError(..RetrieveItemSourceCode(namespace, payload.workspace, itemName, .code, externalPath))
       } else {
         $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or simply does not exist."))
-      }
-      
-      set lastChange = $extract($replace(##class(%RoutineMgr).TS(itemName), " ", "T"), 1, *-3)_"Z"
+      }      
         
       do success.%Push({
         "name": (itemName),
         "content": (code),
-        "lastChange": (##class(Port.SourceControl.Log).GetLastChange(project.Name, itemName)),
+        "lastChange": ($extract($replace(##class(%RoutineMgr).TS(itemName), " ", "T"), 1, *-3)_"Z"),
         "path": (externalPath),
-        "directory": (##class(%File).GetDirectory(externalPath)),
         "fileName": (##class(%File).GetFilename(externalPath))
       })    
     } catch ex {
@@ -343,9 +321,16 @@ ClassMethod FetchItemsSourceCode(namespace As %String, project As %Studio.Projec
 ClassMethod RetrieveItemSourceCode(namespace As %String, workspacePath As %String, itemName As %String, code As %Stream.Object, Output externalPath As %String = "") As %Status [ Private ]
 {
 
-  #dim stream As %Stream.GlobalCharacter      
+  #dim stream As %Stream.GlobalCharacter  
   
+  set skipStaticCode = 0
+  set code = []
+  
+  // If there's no external path, then when are getting it from a item already known by the client.
   if externalPath = "" {
+    // In that case no source code must be fetched from the server as it should be the same for both sides.
+    // The result is an empty code array signaling it.
+    set skipStaticCode = 1        
     set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, workspacePath)
   }     
   
@@ -358,7 +343,7 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, workspacePath As %Strin
     set routine = ##class(%RoutineMgr).%OpenId(itemName)
     if '$isobject(routine) return $$$ERROR($$$RoutineDoesNotExist, itemName)
     set code = $$StreamToArray(routine.Code)
-  } else {
+  } elseif 'skipStaticCode {
     set file = ##class(%Stream.FileCharacter).%New()
     $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .physicalPath, namespace))
     $$$ThrowOnError(file.LinkToFile(physicalPath))
@@ -380,9 +365,9 @@ StreamToArray(stream)
 
 ClassMethod T() As %Status
 {
-  do ##class(Frontier.DevTools.FakeAgent).Request("/api/xport/DEV/xport-testing/items/fetch", "POST", {
-    "workspace": "c:\\CacheProjects\\xport-testing",
-    "items": [ "c:\\CacheProjects\\xport-testing\\cls\\Whatever\\Testing.cls" ]
+  do ##class(Frontier.DevTools.FakeAgent).Request("api/xport/DEV/xport-testing/items/fetch", "POST", {
+    "workspace": "/home/rubens/projects/xport-testing",
+    "items": ["*"]
   }, "Basic "_$System.Encryption.Base64Encode("_system:SYS"), 1)
 }
 

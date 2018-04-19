@@ -1,5 +1,6 @@
 Include portutils
 
+/// This utility is used to handle file deletions from the server along with removing empty directories left by them.
 Class XPort.Util.FileRemover Extends %RegisteredObject
 {
 
@@ -37,7 +38,7 @@ Method Remove(path As %String, hasContent As %Boolean = 0) As %Status
   if path = ..GetWebApplicationPath(path) return $$$OK 
   
   // There's a bug when using Exists for directories, it seems to assume that a directory is also a file.
-  // To workaround this DirectoryExists is also applied because it WILL return 0.
+  // To workaround this, DirectoryExists is also applied because it WILL return 0.
   if '##class(%File).DirectoryExists(path) && ##class(%File).Exists(path) { 
     do ##class(%File).Delete(path) 
   } elseif hasContent = 0 { 
