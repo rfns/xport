@@ -1,33 +1,32 @@
 Class XPort.API Extends Frontier.Router
 {
 
-Parameter HandleCorsRequest = "true";
-
-Parameter UseSession As INTEGER = 1;
-
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
 <Routes>
-<Route Url="/ping" Method="GET" UseAuth="false" Call="Ping"/>
-<Map Prefix="/:namespace/:project" Forward="XPort.API.Project"/>
+<Route Url="/ping" Method="HEAD" UseAuth="false" Call="Ping"/>
+<Map Prefix="/namespaces/:namespace/projects" Forward="XPort.API.Projects"/>
+<Map Prefix="/namespaces/:namespace/documents" Forward="XPort.API.Documents"/>
 </Routes>
 }
 
 ClassMethod OnSetup() As %Status
 {
-  
+  #dim %frontier As Frontier.Context
+
   // Disables path normalization and tries to resolve using the received path syntax.
-  set ^||Port.Internals.Configuration("remote") = 1  
-  
-  set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()   
-  
+  set ^||Port.Internals.Configuration("remote") = 1
+
+  set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()
+
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
    "realm": "source",
-   "validator": ($classname()_":ValidateCredentials"),
-   "required": true
+   "validator": ($classname()_":ValidateCredentials")
   })
-  
+
+  do %frontier.CORS.Default()
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+
   return $$$OK
 }
 
@@ -38,17 +37,16 @@ ClassMethod ValidateCredentials(login As %String, password As %String, Output fo
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
-    
+
   if '$System.Security.CheckUserPermission(login, "%Development", "USE") {
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$RequiresRoleForConnection, "%Development")
-  }  
+  }
   return $$$OK
 }
 
-ClassMethod Ping() As %Status
+ClassMethod Ping() As %String
 {
-  do %frontier.Raw()
   return ""
 }
 

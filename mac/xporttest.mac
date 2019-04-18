@@ -1,0 +1,10 @@
+test
+  new agent, sc
+  set agent = ##class(Forgery.Agent).%New()
+  set sc = agent.Get({
+    "url": "api/xport/namespaces/SAMPLES/documents/preview/bas/BASdatent1.bas",
+    "headers": {
+      "Authorization": ("Basic "_$System.Encryption.Base64Encode("_system:SYS"))
+    }
+  }, .d, 1)
+  quit
