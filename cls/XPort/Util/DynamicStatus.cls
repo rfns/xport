@@ -22,4 +22,3 @@ ClassMethod ToDynamicObject(status As %Status, Output error As %DynamicObject = 
 }
 
 }
-

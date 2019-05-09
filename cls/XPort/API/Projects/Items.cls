@@ -26,25 +26,24 @@ ClassMethod DeleteItems(namespace As %String, projectName As %String(ALIAS="proj
   for i=0:1:items.%Size() - 1 {
     try {
       set sourcePath = items.%Get(i)
-      set workspace = $$$Slash(sourcePath)_projectName
-      set sourcePath = workspace_sourcePath
 
-      $$$ThrowOnError(##class(Port.Util).MountItemNameFromSourcePath(sourcePath, .itemName, namespace))
-      set type = ##class(Port.Util).ExtractType(sourcePath, workspace)
-      if itemName = "" $$$ThrowOnError($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))
+      set itemName = ##class(Port.Util).PathToItem(sourcePath, namespace)
+      set type = ##class(Port.Util).GetPathType(sourcePath)
+      if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))
 
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type)
+      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))
 
-      if conflicts '= "" {
-        $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(ubiquityList, ", ")))
-      }
+      set routine = ##class(%RoutineMgr).%New(itemName)
 
-      if type = "WEB" {
-        $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .targetAbsolutePath))
-        $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(targetAbsolutePath))
-        set itemName = targetAbsolutePath
-      } elseif ##class(Port.Util).IsRoutine(itemName) || (type = "CLS") {
-        do ##class(%RoutineMgr).Delete(itemName)
+      if '$isobject(routine) {
+        $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item: "_itemName_ " because it doesn't exist on the server."))
+      } elseif type = "PUBLIC" {
+        set path = routine.Code.Filename
+        $$$ThrowOnError(routine.Delete(itemName))
+        $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(path))
+      } else {
+        $$$ThrowOnError(routine.Delete(itemName))
       }
       do successOnDelete.%Push(itemName)
     } catch ex {
@@ -79,11 +78,11 @@ ClassMethod RemoveItems(namespace As %String, project As %String, payload As %Dy
   for i=0:1:payload.%Size() - 1 {
     try {
       set sourcePath = payload.%Get(i)
-      $$$ThrowOnError(##class(Port.Util).MountItemNameFromSourcePath(sourcePath, .itemName, namespace))
+      set itemName = ##class(Port.Util).PathToItem(sourcePath, namespace)
       $$$ThrowOnError(project.RemoveItem(itemName))
       do successOnRemove.%Push(itemName)
     } catch ex {
-      set error = ##class(Frontier.Exception).ToDynamicObject($$$StatusToException(sc)).error
+      set error = ##class(Frontier.Exception).ToDynamicObject(ex)
       set error.itemName = itemName
       do errorOnRemove.%Push(error)
     }
@@ -129,30 +128,23 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
     try {
       set sc = $$$OK
       set source = ""
-      $$$ThrowOnError(##class(Port.Util).MountItemNameFromSourcePath(file.path, .itemName, namespace))
-      set workspace = ##class(Port.Util).ResolveWorkspaceFromPath(file.path)
-      set type = ##class(Port.Util).ExtractType(file.path, workspace)
+      set itemName = ##class(Port.Util).PathToItem(file.path, namespace)
+      set workspace = ##class(Port.Util).GetWorkspaceBasedItemPath(file.path, project.Name)
+      set type = ##class(Port.Util).GetPathType(file.path)
+      set itemType = ##class(Port.Util).GetItemType(itemName)
       set fileName = ##class(%File).GetFilename(file.path)
 
-      if itemName = "" {
-        $$$ThrowOnError($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
-      }
+      if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
 
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName)
+      if conflicts '= "" $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
 
-      if conflicts '= "" {
-        $$$ThrowOnError($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(ubiquityList), project.Name))
-      }
-
-      set itemId = ##class(Port.Util).MountIdFromName(itemName, project.Name)
+      set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
       set itemExists = project.Items.IsDefined(itemId)
-      set itemType = ##class(Port.Util).ResolveItemExtension(itemName)
       set code = file.content
 
-      if '$isobject(code) {
-        do %frontier.ThrowException("'content' array was not provided for "_itemName, ..#HTTP200OK)
-      }
 
+      if '$isobject(code) $$$ThrowStatus($$$ERROR($$$GeneralError, "'content' array was not provided for "_itemName))
       set iterator = code.%GetIterator()
 
       while iterator.%GetNext(.key, .line) {
@@ -164,15 +156,22 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
       $$$CheckLegacySourceControl(callLegacySourceControl)
 
-      if ##class(Port.Util).IsRoutine(itemName) {
+      if ##class(Port.Util).IsRoutine(itemName) || (itemType = "CSP") {
         set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)
+        set extension = $$$ucase($piece(fileName, ".", *))
+
+        if itemType = "CSP" {
+          if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid CSP application."))
+          set routine.Code.TranslateTable = "UTF8"
+          if extension = "CSP" || (extension = "CSR") set compileList(itemName) = ""
+        } else {
+          set compileList(itemName) = ""
+        }
 
         $$$ThrowOnError($$WriteToStream(routine.Code))
         $$$ThrowOnError(routine.%Save())
-
-        set compileList(itemName) = ""
       } elseif type = "CLS" {
-        // Checks if client is providing correct item name and class definition.
+        // Both the file name and the class name must match.
         $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
 
         set stream = ##class(%Stream.GlobalCharacter).%New()
@@ -180,19 +179,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
         set compileList(itemName) = ""
-      } else {
-        $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .physicalPath))
-        $$$ThrowOnError(##class(Port.Util).CreateMissingPath(##class(%File).GetDirectory(physicalPath)))
-
-        set remoteFile = ##class(%Stream.FileCharacter).%New()
-        set remoteFile.TranslateTable = "UTF8"
-
-        $$$ThrowOnError(remoteFile.LinkToFile(physicalPath))
-        $$$ThrowOnError($$WriteToStream(remoteFile))
-        $$$ThrowOnError(remoteFile.%Save())
-
-        // Static files are normally not compiled, with the exception of CSP files.
-        if type = "CSP" set compileList(itemName) = ""
       }
 
       if $order(compileList("")) '= "" {
@@ -207,7 +193,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
       set code = ""
 
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, workspace, itemName)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
       $$$ThrowOnError(project.%Save())
 
       if code '= "" {
@@ -274,8 +260,8 @@ ClassMethod GetItemPaths(namespace As %String, project As %String) As %DynamicAr
   set paths = []
   for i=0:1:allProjectItems.%Size() - 1 {
     set item = allProjectItems.%Get(i)
-    set externalPath = ##class(Port.Util).MountItemSourcePath(item, "")
-    do paths.%Push($extract(externalPath, 2, *))
+    set externalPath = $replace(##class(Port.Util).ItemToPath(item), "\", "/")
+    do paths.%Push(externalPath)
   }
   return { "paths": (paths) }
 }
@@ -296,7 +282,7 @@ ClassMethod GetItems(namespace As %String, project As %String, payload As %Dynam
 
   if payload.items.%Get(0) = "*" {
     set all = 1
-    set payload.items = ##class(XPort.Util.NamespaceCall).GetAllProjectItems(namespace, project.Name)
+    set payload.items = ##class(XPort.Util.NamespaceCall).GetAllProjectItems(namespace, project.Name, 1)
   }
 
   set success = []
@@ -304,26 +290,27 @@ ClassMethod GetItems(namespace As %String, project As %String, payload As %Dynam
 
   for i=0:1:payload.items.%Size() - 1 {
     try {
-      set externalFile = payload.items.%Get(i)
-      set itemName = externalFile
+      set fileOrItemName = payload.items.%Get(i)
 
-      if itemName [ payload.workspacePath {
-        $$$ThrowOnError(##class(Port.Util).MountItemNameFromSourcePath(externalFile, .itemName, namespace))
+      if all '= 1 {
+        set itemName = ##class(Port.Util).PathToItem(fileOrItemName, namespace)
+        set externalFile = fileOrItemName
+      } else {
+        set externalFile = ##class(Port.Util).ItemToPath(fileOrItemName)
+        set itemName = fileOrItemName
       }
 
-      set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, payload.workspacePath)
-
       if all || ('all && ##class(Port.Util).ExistsInProject(project.Name, itemName, "", namespace)) {
-        set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, payload.workspacePath, itemName)
+        set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
       } else {
-        $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or simply does not exist."))
+        $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or does not exist."))
       }
 
       do success.%Push({
         "name": (itemName),
         "content": (code),
-        "path": (externalPath),
-        "fileName": (##class(%File).GetFilename(externalPath))
+        "path": (externalFile),
+        "fileName": (##class(%File).GetFilename(externalFile))
       })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -339,7 +326,6 @@ ClassMethod GetItems(namespace As %String, project As %String, payload As %Dynam
       "header": "Failed to get the sources from the following items: ",
       "items": (errors)
     }
-
   }
 }
 

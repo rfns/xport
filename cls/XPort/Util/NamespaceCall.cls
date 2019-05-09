@@ -1,4 +1,4 @@
-Include xport
+Include (xport, portutils)
 
 Class XPort.Util.NamespaceCall [ Abstract ]
 {
@@ -65,17 +65,17 @@ ClassMethod ListProjects(namespace As %String) As %DynamicArray
   }
 }
 
-ClassMethod GetAllProjectItems(namespace As %String, projectName As %String) As %DynamicArray
+ClassMethod GetAllProjectItems(namespace As %String, projectName As %String, keepOriginalCSPPath As %Boolean = 0) As %DynamicArray
 {
   $$$ChangeNamespace(namespace)
   set items = []
 
   set s = ##class(%SQL.Statement).%New()
-  $$$ThrowOnError(s.%PrepareClassQuery("%Studio.Project", "ProjectItemsList"))
+  $$$ThrowOnError(s.%PrepareClassQuery("%Studio.Project", "ProjectItemsList"))  
   set r = s.%Execute(projectName)
 
   set itemList = ""
-  set qualifiedClasses = ""
+  set qualifiedClasses = ""  
 
   while r.%Next(.sc) {
     $$$ThrowOnError(sc)
@@ -129,18 +129,19 @@ ClassMethod DeleteProject(namespace As %String, name As %String)
 
 ClassMethod ExportProjectToXML(namespace As %String, name As %String) As %Stream.Object
 {
-  // Continuação.
   $$$ChangeNamespace(namespace)
 
   set tempFilename = ##class(%File).TempFilename("xml")
 
   $$$ThrowOnError(..AssertValidProject(name, .project))
-  $$$ThrowOnError(project.Export(tempFilename, "/nodisplay/diffexport", 0,.errors, "RAW"))
+  $$$ThrowOnError(project.Export(tempFilename, "/nodisplay/diffexport", 0,.errors))
 
   set input = ##class(%Stream.FileCharacter).%New()
+  set input.TranslateTable = "UTF8"
   $$$ThrowOnError(input.LinkToFile(tempFilename))
 
   set output = ##class(%Stream.GlobalCharacter).%New()
+  set input.TranslateTable = "UTF8"
   $$$ThrowOnError(output.CopyFrom(input))
 
   set input = ""
@@ -156,13 +157,13 @@ ClassMethod GetDocumentReferences(namespace As %String, expression As %String, p
   return output
 }
 
-ClassMethod RetrieveItemSourceCode(namespace As %String, workspacePath As %String, itemName As %String) As %Stream.Object
+ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String) As %Stream.Object
 {
   #dim stream As %Stream.GlobalCharacter
   set code = []
 
-  set externalPath = ##class(Port.Util).MountItemSourcePath(itemName, workspacePath)
-  set pathType = ##class(Port.Util).ExtractType(externalPath, workspacePath)
+  set externalPath = ##class(Port.Util).ItemToPath(itemName)
+  set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
 
   if pathType = "CLS" {
     $$$ThrowOnError(##class(%Compiler.UDL.TextServices).GetTextAsStream(namespace, itemName, .content))
@@ -173,11 +174,9 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, workspacePath As %Strin
     if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$RoutineDoesNotExist, itemName))
     set code = $$StreamToArray(routine.Code)
   } else {
-    set file = ##class(%Stream.FileCharacter).%New()
-    set file.TranslateTable = "UTF8"
-    $$$ThrowOnError(##class(Port.Util).CSPLogicalToPhysicalPath(itemName, .physicalPath, namespace))
-    $$$ThrowOnError(file.LinkToFile(physicalPath))
-    set code = $$StreamToArray(file)
+    set csp = ##class(%CSP.Routine).%New(itemName)    
+    set csp.TranslateTable = "UTF8"
+    set code = $$StreamToArray(csp)
   }
 
   return code
@@ -193,6 +192,14 @@ StreamToArray(stream)
   return array
 }
 
+ClassMethod FixProject(namespace As %String, name As %String)
+{
+  $$$ChangeNamespace(namespace)
+  $$$ThrowOnError(..AssertValidProject(name, .project))
+  $$$ThrowOnError(project.Check())
+  $$$ThrowOnError(project.%Save())
+}
+
 ClassMethod AssertValidProject(name As %String, Output project As %Studio.Project = "") As %Status
 {
   set project = ##class(%Studio.Project).%OpenId(name)
@@ -201,3 +208,4 @@ ClassMethod AssertValidProject(name As %String, Output project As %Studio.Projec
 }
 
 }
+

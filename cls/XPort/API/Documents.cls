@@ -9,24 +9,19 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Route Url="/find" Method="GET" UseAuth="true" Call="FindDocuments"/>
 <Route Url="/preview/?(.*)?" Strict="false" Method="GET" Call="PreviewDocument" />
 <Route Url="/references" Method="GET" Call="GetDocumentReferences" />
-
 </Routes>
 }
 
 ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %Integer = 50) As %DynamicObject
 {
-  set webAppPath = ##class(Port.Util).FindApplicationWithPhysicalPath(namespace)
-
-  if webAppPath = "" {
-    return %frontier.ThrowException("Unable to find a valid web application.")
-  }
-
   set s = ##class(%SQL.Statement).%New()
   $$$ThrowOnError(s.%PrepareClassQuery("%RoutineMgr", "StudioOpenDialog"))
   set c = s.%Execute(pattern,,,1,1)
 
   set matches = []
   set hits = 0
+
+  set appPath = ""
 
   while c.%Next(.sc) {
     $$$ThrowOnError(sc)
@@ -35,7 +30,7 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
     set hits = hits + 1
 
     set name = c.%Get("Name")
-    set type = c.%Get("type")
+    set type = c.%Get("Type")
 
     if type = 9 || (type = 7) continue
 
@@ -43,17 +38,30 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
   }
 
   return {
-    "webAppPath": (webAppPath),
     "matches": (matches)
   }
+
+
+GetWebAppPath(cspItem)
+  set webAppName = $System.CSP.GetAppName(cspItem)
+  set currentNamespace = $namespace
+
+  if webAppName '= "" {
+    new $namespace
+    set $namespace = "%SYS"
+
+    do ##class(Security.Applications).Get(webAppName, .props)
+    set $namespace = currentNamespace
+    return ##class(Port.Util).TranslatePath($get(props("Path")), 3)
+  }
+  return ""
 }
 
 ClassMethod PreviewDocument(namespace As %String) As %DynamicObject
 {
-  set item = $replace("/"_%frontier.Matches(1), ##class(Port.Util).FindApplicationWithPhysicalPath(namespace), "")
-  $$$ThrowOnError(##class(Port.Util).MountItemNameFromSourcePath(item, .itemName, namespace))
-  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, "", itemName)
-
+  set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
+  set itemName = ##class(Port.Util).PathToItem(match, namespace)
+  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
   return { "preview": (code) }
 }
 

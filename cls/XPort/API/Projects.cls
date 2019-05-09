@@ -63,4 +63,12 @@ ClassMethod CompileProject(namespace As %String, project As %String, options As 
   }
 }
 
+ClassMethod FixProject(namespace As %String, name As %String) As %String
+{
+  do ##class(XPort.Util.NamespaceCall).FixProject(namespace, name)
+  do %frontier.SetStatus(..#HTTP204NOCONTENT)
+  return ""
 }
+
+}
+
