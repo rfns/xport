@@ -116,24 +116,7 @@
     do matches.%Push(name)
   }
 
-  return {
-    "matches": (matches)
-  }
-
-
-GetWebAppPath(cspItem)
-  set webAppName = $System.CSP.GetAppName(cspItem)
-  set currentNamespace = $namespace
-
-  if webAppName '= "" {
-    new $namespace
-    set $namespace = "%SYS"
-
-    do ##class(Security.Applications).Get(webAppName, .props)
-    set $namespace = currentNamespace
-    return ##class(Port.Util).TranslatePath($get(props("Path")), 3)
-  }
-  return ""
+  return { "matches": (matches) }
 ]]></Implementation>
 </Method>
 
@@ -405,7 +388,6 @@ GetWebAppPath(cspItem)
       set sc = $$$OK
       set source = ""
       set itemName = ##class(Port.Util).PathToItem(file.path, namespace)
-      set workspace = ##class(Port.Util).GetWorkspaceBasedItemPath(file.path, project.Name)
       set type = ##class(Port.Util).GetPathType(file.path)
       set itemType = ##class(Port.Util).GetItemType(itemName)
       set fileName = ##class(%File).GetFilename(file.path)
@@ -418,7 +400,6 @@ GetWebAppPath(cspItem)
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
       set itemExists = project.Items.IsDefined(itemId)
       set code = file.content
-
 
       if '$isobject(code) $$$ThrowStatus($$$ERROR($$$GeneralError, "'content' array was not provided for "_itemName))
       set iterator = code.%GetIterator()
@@ -1029,7 +1010,7 @@ StreamToArray(stream)
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-05-09 15:39:40.531201" Target="test3^xporttest" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="xport" LastModified="2019-05-10 16:16:03.244644" Target="test3^xporttest" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
     <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>

@@ -129,7 +129,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       set sc = $$$OK
       set source = ""
       set itemName = ##class(Port.Util).PathToItem(file.path, namespace)
-      set workspace = ##class(Port.Util).GetWorkspaceBasedItemPath(file.path, project.Name)
       set type = ##class(Port.Util).GetPathType(file.path)
       set itemType = ##class(Port.Util).GetItemType(itemName)
       set fileName = ##class(%File).GetFilename(file.path)
@@ -142,7 +141,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
       set itemExists = project.Items.IsDefined(itemId)
       set code = file.content
-
 
       if '$isobject(code) $$$ThrowStatus($$$ERROR($$$GeneralError, "'content' array was not provided for "_itemName))
       set iterator = code.%GetIterator()

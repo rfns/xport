@@ -37,24 +37,7 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
     do matches.%Push(name)
   }
 
-  return {
-    "matches": (matches)
-  }
-
-
-GetWebAppPath(cspItem)
-  set webAppName = $System.CSP.GetAppName(cspItem)
-  set currentNamespace = $namespace
-
-  if webAppName '= "" {
-    new $namespace
-    set $namespace = "%SYS"
-
-    do ##class(Security.Applications).Get(webAppName, .props)
-    set $namespace = currentNamespace
-    return ##class(Port.Util).TranslatePath($get(props("Path")), 3)
-  }
-  return ""
+  return { "matches": (matches) }
 }
 
 ClassMethod PreviewDocument(namespace As %String) As %DynamicObject
