@@ -1182,29 +1182,6 @@ StreamToArray(stream)
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-07-18 17:58:42.642562" Target="test4^xporttest" TargetType="2" HttpServer="http://localhost:57772">
-  <Items>
-    <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.API.Projects" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.API.Projects.Items" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.Util.DynamicStatus" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.Util.FileRemover" type="CLS"></ProjectItem>
-    <ProjectItem name="XPort.Util.NamespaceCall" type="CLS"></ProjectItem>
-    <ProjectItem name="xport.INC" type="MAC"></ProjectItem>
-    <ProjectItem name="xporttest.MAC" type="MAC"></ProjectItem>
-  </Items>
-  <BreakPoints>
-    <BreakPoint Routine="XPort.Util.NamespaceCall.1.INT" Offset="63"></BreakPoint>
-  </BreakPoints>
-  <WatchVariables>
-    <WatchVariable Variable="code.%ToJSON()" Pane="1"></WatchVariable>
-    <WatchVariable Variable="csp.Filename" Pane="1"></WatchVariable>
-    <WatchVariable Variable="csp.Size" Pane="1"></WatchVariable>
-  </WatchVariables>
-</Project>
-
-
 <Routine name="xporttest" type="MAC" languagemode="0"><![CDATA[
 test
   new agent, sc

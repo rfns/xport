@@ -1,7 +1,15 @@
-Include (xport, portutils)
+Include (xport, frontier, portutils)
 
 Class XPort.Util.NamespaceCall [ Abstract ]
 {
+
+ClassMethod IsBinary(ext As %String) As %Boolean
+{
+  set ext = $$$ucase(ext)
+  if $lf($lfs($$$RoutineGroups_",MD,CSP,CSR,SCSS,LESS,JSX,VUE,CLS,JSON"), ext) return 0
+  do ##class(%CSP.StreamServer).FileClassify(ext, .type, .binary)
+  return binary
+}
 
 ClassMethod SetItemLock(namespace As %String, itemName As %String, lock As %Boolean) As %Status
 {
@@ -65,41 +73,62 @@ ClassMethod ListProjects(namespace As %String) As %DynamicArray
   }
 }
 
-ClassMethod GetAllProjectItems(namespace As %String, projectName As %String, keepOriginalCSPPath As %Boolean = 0) As %DynamicArray
+ClassMethod CountProjectItems(namespace As %String, projectName As %String) As %Integer
 {
   $$$ChangeNamespace(namespace)
+  
+  set count = 0
+  set ts = ##class(%SQL.Statement).%ExecDirect(, "call %Studio.Project_ProjectItemsList(?)", projectName)
+  while ts.%Next() { set count = count + 1 }
+  
+  return count
+}
+
+ClassMethod ListProjectItems(namespace As %String, projectName As %String, page As %Integer = 1, size As %Integer = 50) As %DynamicArray
+{
+  $$$ChangeNamespace(namespace)
+  
   set items = []
 
   set s = ##class(%SQL.Statement).%New()
   $$$ThrowOnError(s.%PrepareClassQuery("%Studio.Project", "ProjectItemsList"))  
   set r = s.%Execute(projectName)
-
-  set itemList = ""
-  set qualifiedClasses = ""  
+  
+  set count = ..CountProjectItems(namespace, projectName)   
+  
+  set result = { "items": [], "errors": [] } 
+  set i = 0
+  
+  // Calculates the page boundaries.
+  set limit = page * size
+  set offset = limit - (size - 1)
 
   while r.%Next(.sc) {
-    $$$ThrowOnError(sc)
-    set projectItemName = r.%Get("Name")
-    set projectItemType = r.%Get("Type")
-    $$$ThrowOnError(##class(%Studio.Project).NormalizeName(.projectItemName, .projectItemType))
-    if projectItemType = "CLS" {
-      // Defer the insert to after we check if there's any package to be expanded.
-      set qualifiedClasses(projectItemName_".CLS") = 1
-    } elseif projectItemType = "PKG" {
-      $$$ThrowOnError($System.OBJ.GetPackageList(.pkgd, projectItemName))
-      // Found a package, normalize the list and delete any entry that doesn't have the CLS extension.
-      set n = "" for  set n = $order(pkgd(n), 1, v)  quit:n=""  continue:v  set pkgd(n_".CLS") = 1 kill pkgd(n)
-      merge qualifiedClasses = pkgd
-    } else {
-      do items.%Push(projectItemName)
+    set i = i + 1        
+    if i < offset continue
+    if i > limit quit
+    
+    try {                  
+      $$$ThrowOnError(sc)      
+      
+      set name = r.%Get("Name")
+      set type = r.%Get("Type")
+      set ext = $$$ucase($piece(name, ".", *))
+      
+      // We are expanding the PKGs already because only the classes matter.
+      if type = "PKG" continue      
+      
+      $$$ThrowOnError(##class(%Studio.Project).NormalizeName(.name, .type))    
+      if type = "CLS" set name = name_".cls" set ext = "CLS"
+      do result.items.%Push({ "index": (i), "name": (name), "binary": (..IsBinary(ext)) })
+    } catch ex {
+      set error = ##class(Frontier.Exception).ToDynamicObject(ex)
+      do result.errors.%Push({ "index": (i), "error": (error) })
     }
   }
-
-  // From this step onwards we won't face any repeated subscript, so we can add the classes safely.
-  set name = ""
-  for  set name = $order(qualifiedClasses(name)) quit:name=""  do items.%Push(name)
-
-  return items
+  
+  do result.%Set("more", i < count, "boolean")
+  return result
 }
 
 ClassMethod GetProject(namespace As %String, name As %String, ignoreError As %Boolean = 0) As %Studio.Project
@@ -107,7 +136,44 @@ ClassMethod GetProject(namespace As %String, name As %String, ignoreError As %Bo
   $$$ChangeNamespace(namespace)
 
   set project = ##class(%Studio.Project).%OpenId(name)
-  if 'ignoreError $$$ThrowOnError(..AssertValidProject(name))
+  if $isobject(project) do project.Items.Load()
+  if 'ignoreError $$$ThrowOnError(..AssertValidProject(name))  
+  return project
+}
+
+ClassMethod AddItem(namespace As %String, name As %String, itemName As %String)
+{
+  $$$ChangeNamespace(namespace)
+  
+  set project = ..GetProject(namespace, name)
+  
+  set sc = project.AddItem(itemName)
+  
+  if $$$GETERRORCODE(sc) '= $$$ProjectIncludesPackage {
+    // We don't care if class is owned by a package or not, if that's the error we ignore it.
+    $$$ThrowOnError(sc)
+  }
+  
+  $$$ThrowOnError(project.%Save())
+}
+
+ClassMethod CreateProject(namespace As %String, name As %String) As %Studio.Project
+{
+  $$$ChangeNamespace(namespace)
+  
+  // Checks if the project exists to prevent ID clashes.
+  set project = ##class(%Studio.Project).%OpenId(namespace)
+  if '$isobject(project) {
+    // Nothing found, we are safe to create a new one.
+    set project = ##class(%Studio.Project).%New()
+    set project.Name = name
+    
+    // Save the project to make sure it exists even if empty.
+    do project.%Save()
+  }
+    
+  // Now load the relationship data into the memory.
+  do project.Items.Load()
   return project
 }
 
@@ -137,11 +203,11 @@ ClassMethod ExportProjectToXML(namespace As %String, name As %String) As %Stream
   $$$ThrowOnError(project.Export(tempFilename, "/nodisplay/diffexport", 0,.errors))
 
   set input = ##class(%Stream.FileCharacter).%New()
-  set input.TranslateTable = "UTF8"
+  set input.TranslateTable = ##class(Port.Configuration).GetPublicFileOutputTranslateTable()
   $$$ThrowOnError(input.LinkToFile(tempFilename))
 
   set output = ##class(%Stream.GlobalCharacter).%New()
-  set input.TranslateTable = "UTF8"
+  set input.TranslateTable = ##class(Port.Configuration).GetPublicFileOutputTranslateTable()
   $$$ThrowOnError(output.CopyFrom(input))
 
   set input = ""
@@ -157,25 +223,35 @@ ClassMethod GetDocumentReferences(namespace As %String, expression As %String, p
   return output
 }
 
-ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String) As %Stream.Object
+ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Output isBinary As %Boolean = 0, encoding As %String = "") As %Stream.Object
 {
   #dim stream As %Stream.GlobalCharacter
   set code = []
+  set isBinary = 0
 
   set externalPath = ##class(Port.Util).ItemToPath(itemName)
   set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
+  
+  set publicFileOTT = ##class(Port.Configuration).GetPublicFileOutputTranslateTable()  
+  set routineOTT = ##class(Port.Configuration).GetRoutineOutputTranslateTable()
+  
+  $$$ChangeNamespace(namespace)
 
   if pathType = "CLS" {
     $$$ThrowOnError(##class(%Compiler.UDL.TextServices).GetTextAsStream(namespace, itemName, .content))
     set code = $$StreamToArray(content)
-  } elseif ##class(Port.Util).IsRoutine(itemName) {
-    $$$ChangeNamespace(namespace)
+  } elseif ##class(Port.Util).IsRoutine(itemName) {    
     set routine = ##class(%RoutineMgr).%OpenId(itemName)
     if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$RoutineDoesNotExist, itemName))
     set code = $$StreamToArray(routine.Code)
   } else {
-    set csp = ##class(%CSP.Routine).%New(itemName)    
-    set csp.TranslateTable = "UTF8"
+    set ext = $$$ucase($piece(itemName, ".", *))
+    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))    
+    
+    set isBinary = ..IsBinary(ext)
+    if 'isBinary set csp.TranslateTable = publicFileOTT
+    else  set csp.TranslateTable = "RAW"    
+    
     set code = $$StreamToArray(csp)
   }
 
@@ -185,14 +261,19 @@ StreamToArray(stream)
   set array = []
 
   do stream.Rewind()
+  set len = 12000 
 
   while 'stream.AtEnd {
-    do array.%Push(stream.ReadLine())
+    if 'isBinary {
+      do array.%Push(stream.ReadLine())
+    } else {
+      do array.%Push($System.Encryption.Base64Encode(stream.Read(.len), 1))
+    }
   }
   return array
 }
 
-ClassMethod FixProject(namespace As %String, name As %String)
+ClassMethod RepairProject(namespace As %String, name As %String)
 {
   $$$ChangeNamespace(namespace)
   $$$ThrowOnError(..AssertValidProject(name, .project))

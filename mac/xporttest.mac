@@ -33,5 +33,15 @@ test3
       "Authorization": ("Basic "_$System.Encryption.Base64Encode("_system:SYS"))
     }
   }, .d, 1)
+  
+test4
+  new agent, sc
+  set agent = ##class(Forgery.Agent).%New()
+  set sc = agent.Get({
+    "url": "api/xport/namespaces/DEV2/documents/preview/public/qualix/rconnect/carrinhocompra.csp",
+    "headers": {
+      "Authorization": ("Basic "_$System.Encryption.Base64Encode("_system:SYS"))
+    }
+  }, .d, 1)  
 
   quit  

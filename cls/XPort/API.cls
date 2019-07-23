@@ -1,11 +1,12 @@
 Class XPort.API Extends Frontier.Router
 {
 
+Parameter UseSession = 1;
+
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
 <Routes>
 <Route Url="/ping" Method="HEAD" UseAuth="false" Call="Ping"/>
-<Route Url="/webapps" Method="GET" UseAuth="false" Call="ListLegacyWebApplications" />
 <Map Prefix="/namespaces/:namespace/projects" Forward="XPort.API.Projects"/>
 <Map Prefix="/namespaces/:namespace/documents" Forward="XPort.API.Documents"/>
 </Routes>
@@ -49,10 +50,6 @@ ClassMethod ValidateCredentials(login As %String, password As %String, Output fo
 ClassMethod Ping() As %String
 {
   return ""
-}
-
-ClassMethod ListLegacyWebApplications(namespace As %String)
-{
 }
 
 }

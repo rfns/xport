@@ -11,6 +11,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Route Url="/:project/create" Method="POST" Call="CreateProject"/>
 <Route Url="/:project/xml" Method="GET" Call="GetProjectXML" />
 <Route Url="/:project/compile" Method="POST" Call="CompileProject" />
+<Route Url="/:project/repair" Method="PATCH" Call="RepairProject" />
 <Map Prefix="/:project/items" Forward="XPort.API.Projects.Items"/>
 </Routes>
 }
@@ -63,11 +64,11 @@ ClassMethod CompileProject(namespace As %String, project As %String, options As 
   }
 }
 
-ClassMethod FixProject(namespace As %String, name As %String) As %String
+ClassMethod RepairProject(namespace As %String, project As %String) As %DynamicObject
 {
-  do ##class(XPort.Util.NamespaceCall).FixProject(namespace, name)
-  do %frontier.SetStatus(..#HTTP204NOCONTENT)
-  return ""
+  do ##class(XPort.Util.NamespaceCall).RepairProject(namespace, project)
+  do %frontier.Status(..#HTTP204NOCONTENT)
+  return { "repaired": true }
 }
 
 }
