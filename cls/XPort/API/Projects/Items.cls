@@ -165,8 +165,15 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
         if itemType = "CSP" {          
           set binary = $select(file.%IsDefined("binary") : file.binary, 1: ##class(XPort.Util.NamespaceCall).IsBinary(extension))
           set routine.Code.TranslateTable = ##class(Port.Configuration).GetPublicFileInputTranslateTable()
-          if binary = 1 set routine.Code.TranslateTable = "RAW"
-          if extension = "CSP" || (extension = "CSR") set compileList(itemName) = ""
+          
+          if binary = 1 {
+            set routine.Code.TranslateTable = "RAW"
+            set routine.Code.StreamFormatWrite = 0
+          }
+          
+          if extension = "CSP" || (extension = "CSR") {
+            set compileList(itemName) = ""
+          }
         } else {
           set compileList(itemName) = ""
         }
@@ -223,11 +230,12 @@ WriteToStream(stream)
   set sc = $$$OK
   do stream.Clear()   
 
-  for i=1:1:source(0) {    
-    set chunk = $select(binary : $System.Encryption.Base64Decode(source(i)), 1: $zstrip(source(i), "*C'W",, $c(10,13,9)))    
-    if 'binary && (i '= source(0) || (i = source(0) && ($extract(source(i), *-2, *) = $char(13,10)))) {   
+  for i=1:1:source(0) {
+    if 'binary {      
+      set chunk = $zstrip(source(i), "*C'W",, $c(10,13,9))
       $$$ReturnOnError(stream.WriteLine(chunk))
     } else {
+      set chunk = $System.Encryption.Base64Decode(source(i))
       $$$ReturnOnError(stream.Write(chunk))
     }
   }

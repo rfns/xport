@@ -249,10 +249,13 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
     set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))    
     
     set isBinary = ..IsBinary(ext)
-    if 'isBinary set csp.TranslateTable = publicFileOTT
-    else  set csp.TranslateTable = "RAW"    
-    
-    set code = $$StreamToArray(csp)
+    if 'isBinary {
+      set csp.TranslateTable = publicFileOTT
+      set code = $$StreamToArray(csp)
+    } else {
+      set csp.TranslateTable = "RAW"
+      set code = []
+    }        
   }
 
   return code
