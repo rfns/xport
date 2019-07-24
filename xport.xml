@@ -13,6 +13,7 @@
 <Data><![CDATA[
 <Routes>
 <Route Url="/ping" Method="HEAD" UseAuth="false" Call="Ping"/>
+<Route Url="/info" Method="GET" UseAuth="false" Call="GetAPIInfo" />
 <Map Prefix="/namespaces/:namespace/projects" Forward="XPort.API.Projects"/>
 <Map Prefix="/namespaces/:namespace/documents" Forward="XPort.API.Documents"/>
 </Routes>
@@ -65,6 +66,26 @@
 <ClassMethod>1</ClassMethod>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[  return ""
+]]></Implementation>
+</Method>
+
+<Method name="GetAPIInfo">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set name = ##class(XPort.Installer).#NAME
+  
+  new $namespace
+  set $namespace = "%SYS"
+  
+  do ##class(Security.Applications).Get(name, .d)
+  
+  return {
+    "version": ("0.9.1"),
+    "application": (name),
+    "namespace": (d("NameSpace")),
+    "dispatcher": (d("DispatchClass"))
+  }
 ]]></Implementation>
 </Method>
 </Class>
@@ -679,6 +700,164 @@ AssertClassDefinitionMatch(className)
 </Class>
 
 
+<Class name="XPort.Installer">
+<Super>%Projection.AbstractProjection</Super>
+<TimeCreated>65218,50602.215507</TimeCreated>
+
+<Parameter name="NAME">
+<Default>/xport/api</Default>
+</Parameter>
+
+<Projection name="Installer">
+<Type>XPort.Installer</Type>
+</Projection>
+
+<Method name="CreateProjection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[classname:%String,&parameters:%String,modified:%String,qstruct]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return ..CreateHTTPAPI()
+]]></Implementation>
+</Method>
+
+<Method name="RemoveProjection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[classname:%String,&parameters:%String,recompile:%Boolean,modified:%String,qstruct]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 
+  return ..RemoveHTTPAPI()
+]]></Implementation>
+</Method>
+
+<Method name="CreateHTTPAPI">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+  #define DownloadIfRequired(%class, %url) $s('##class(%Dictionary.CompiledClass).%ExistsId(%class): ..DownloadExternalDependency(%url), 1: 1)
+  
+  write !, ">> Checking if Port is available ..."  
+  set flag = $$$DownloadIfRequired("Port.Util", "https://github.com/rfns/port/raw/master/port-prod.xml")   
+  else  if flag = 0 write !, " >> Aborted due to errors while downloading the dependencies."
+  
+  write !, ">> Checking if Frontier is available ..."
+  if flag = 1 set flag = $$$DownloadIfRequired("Frontier.Router", "https://github.com/rfns/frontier/raw/master/frontier-prod.xml")
+  else  if flag = 0 write !, ">> Aborted due to errors while downloading the dependencies."   
+  
+  set targetNamespace = $namespace
+  
+  write !, ">> Port and Frontier are installed. Proceeding ... "
+  write !, ">> Creating XPort HTTP API on namespace the "_targetNamespace_" ..."   
+  
+  new $namespace  
+  set $namespace = "%SYS"
+  
+  if ##class(Security.Applications).Exists(..#NAME) {
+    write !, ">> XPort HTTP API already exists. Aborted."
+    return $$$OK
+  }
+  
+  set properties("CookiePath") = ..#NAME
+  set properties("DispatchClass") = "XPort.API"
+  set properties("EventClass") = "Frontier.SessionEvents"
+  set properties("NameSpace") = targetNamespace
+  set properties("UseCookies") = 2
+  set properties("AutheEnabled") = 64
+  
+  $$$QuitOnError(##class(Security.Applications).Create(..#NAME, .properties))
+  write !, ">> The XPort HTTP API has been created with success."
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="RemoveHTTPAPI">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  new $namespace
+  set $namespace = "%SYS"
+  
+  if '##class(Security.Applications).Exists(..#NAME) return $$$OK
+  write !, ">> Removing XPort HTTP API "_..#NAME_" ..."
+  
+  $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
+  write !, ">> The XPort HTTP API has been removed with success."
+  
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="DownloadExternalDependency">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>url:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+  try {
+    do ..CreateSSLConfig()
+    do ##class(%Net.URLParser).Parse(url, .components)
+  
+    set http = ##class(%Net.HttpRequest).%New()
+    set http.Server = components("host")
+    set http.Https = (components("scheme") = "https")
+    set http.SSLConfiguration = $select(http.Https : "XPort SSL Configuration", 1: "")
+ 
+    write !, ">> Downloading external dependency from "_url
+    $$$ThrowOnError(http.Get(components("path")))
+  
+    set temp = ##class(%File).TempFilename("xml")
+    set content = http.HttpResponse.Data
+    
+    write !, ">> Loading and compiling manifest ... "
+    $$$ThrowOnError($System.OBJ.LoadStream(content, "cku /nodisplay"))
+  } catch (ex) {
+    set sc = ex.AsStatus()
+    
+    if $$$ISERR(sc) {
+      write !, ">> FATAL: The failed to download external dependency from "_url_". Error: "_$System.Status.GetErrorText(sc)
+      return 0
+    }
+  }
+  
+  return 1
+]]></Implementation>
+</Method>
+
+<Method name="CreateSSLConfig">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+   new $namespace
+   set $namespace = "%SYS"
+   
+   write !, ">> Creating SSL Configuration ..."
+   
+   do ##class(Security.SSLConfigs).Get("XPort SSL Configuration", .p)
+   if $data(p) quit
+   
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("CAFile")=""
+   set p("CAPath")=""
+   set p("CRLFile")=""
+   set p("CertificateFile")=""
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("Description")=""
+   set p("Enabled")=1
+   set p("PrivateKeyFile")=""
+   set p("PrivateKeyPassword")=""
+   set p("PrivateKeyType")=2
+   set p("Protocols")=24
+   set p("SNIName")=""
+   set p("Type")=0
+   set p("VerifyDepth")=9
+   set p("VerifyPeer")=0
+   
+   do ##class(Security.SSLConfigs).Create("XPort SSL Configuration", .p)
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="XPort.Util.DynamicStatus">
 <Abstract>1</Abstract>
 <TimeCreated>65106,33092.700976</TimeCreated>
@@ -1190,7 +1369,7 @@ StreamToArray(stream)
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-07-18 17:58:42.642562" Target="test4^xporttest" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="xport" LastModified="2019-07-24 15:00:15.516749" Target="test4^xporttest" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
     <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>
@@ -1201,15 +1380,11 @@ StreamToArray(stream)
     <ProjectItem name="XPort.Util.NamespaceCall" type="CLS"></ProjectItem>
     <ProjectItem name="xport.INC" type="MAC"></ProjectItem>
     <ProjectItem name="xporttest.MAC" type="MAC"></ProjectItem>
+    <ProjectItem name="XPort.Installer" type="CLS"></ProjectItem>
   </Items>
   <BreakPoints>
     <BreakPoint Routine="XPort.Util.NamespaceCall.1.INT" Offset="63"></BreakPoint>
   </BreakPoints>
-  <WatchVariables>
-    <WatchVariable Variable="code.%ToJSON()" Pane="1"></WatchVariable>
-    <WatchVariable Variable="csp.Filename" Pane="1"></WatchVariable>
-    <WatchVariable Variable="csp.Size" Pane="1"></WatchVariable>
-  </WatchVariables>
 </Project>
 
 

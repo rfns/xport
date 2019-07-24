@@ -7,6 +7,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
 <Routes>
 <Route Url="/ping" Method="HEAD" UseAuth="false" Call="Ping"/>
+<Route Url="/info" Method="GET" UseAuth="false" Call="GetAPIInfo" />
 <Map Prefix="/namespaces/:namespace/projects" Forward="XPort.API.Projects"/>
 <Map Prefix="/namespaces/:namespace/documents" Forward="XPort.API.Documents"/>
 </Routes>
@@ -50,6 +51,23 @@ ClassMethod ValidateCredentials(login As %String, password As %String, Output fo
 ClassMethod Ping() As %String
 {
   return ""
+}
+
+ClassMethod GetAPIInfo() As %DynamicObject
+{
+  set name = ##class(XPort.Installer).#NAME
+  
+  new $namespace
+  set $namespace = "%SYS"
+  
+  do ##class(Security.Applications).Get(name, .d)
+  
+  return {
+    "version": ("0.9.1"),
+    "application": (name),
+    "namespace": (d("NameSpace")),
+    "dispatcher": (d("DispatchClass"))
+  }
 }
 
 }
