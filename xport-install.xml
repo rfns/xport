@@ -1,23 +1,40 @@
-Class XPort.Installer Extends %Projection.AbstractProjection
-{
+<?xml version="1.0" encoding="UTF8"?>
+<Export generator="Cache" version="25">
+<Class name="XPort.Installer">
+<Super>%Projection.AbstractProjection</Super>
+<TimeCreated>65218,50602.215507</TimeCreated>
 
-Parameter NAME = "/xport/api";
+<Parameter name="NAME">
+<Default>/xport/api</Default>
+</Parameter>
 
-Projection Installer As XPort.Installer;
+<Projection name="Installer">
+<Type>XPort.Installer</Type>
+</Projection>
 
-ClassMethod CreateProjection(classname As %String, ByRef parameters As %String, modified As %String, qstruct) As %Status
-{
-  return ..CreateHTTPAPI()
-}
+<Method name="CreateProjection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[classname:%String,&parameters:%String,modified:%String,qstruct]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return ..CreateHTTPAPI()
+]]></Implementation>
+</Method>
 
-ClassMethod RemoveProjection(classname As %String, ByRef parameters As %String, recompile As %Boolean, modified As %String, qstruct) As %Status
-{
+<Method name="RemoveProjection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[classname:%String,&parameters:%String,recompile:%Boolean,modified:%String,qstruct]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
  
   return ..RemoveHTTPAPI()
-}
+]]></Implementation>
+</Method>
 
-ClassMethod CreateHTTPAPI() As %Status [ Private ]
-{
+<Method name="CreateHTTPAPI">
+<ClassMethod>1</ClassMethod>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
    
   #define DownloadIfRequired(%class, %url) $s('##class(%Dictionary.CompiledClass).%ExistsId(%class): ..DownloadExternalDependency(%url), 1: 1)
   
@@ -27,6 +44,9 @@ ClassMethod CreateHTTPAPI() As %Status [ Private ]
   
   write !, ">> Checking if Frontier is available ..."
   if flag = 1 set flag = $$$DownloadIfRequired("Frontier.Router", "https://github.com/rfns/frontier/raw/master/frontier-prod.xml")
+  else  if flag = 0 write !, ">> Aborted due to errors while downloading the dependencies."   
+  
+  if flag = 1 set flag = $$$DownloadIfRequired("XPort.API", "https://github.com/rfns/xport/raw/master/xport-prod.xml")
   else  if flag = 0 write !, ">> Aborted due to errors while downloading the dependencies."   
   
   set targetNamespace = $namespace
@@ -52,10 +72,13 @@ ClassMethod CreateHTTPAPI() As %Status [ Private ]
   $$$QuitOnError(##class(Security.Applications).Create(..#NAME, .properties))
   write !, ">> The XPort HTTP API has been created with success."
   return $$$OK
-}
+]]></Implementation>
+</Method>
 
-ClassMethod RemoveHTTPAPI() As %Status
-{
+<Method name="RemoveHTTPAPI">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
   new $namespace
   set $namespace = "%SYS"
   
@@ -66,10 +89,14 @@ ClassMethod RemoveHTTPAPI() As %Status
   write !, ">> The XPort HTTP API has been removed with success."
   
   return $$$OK
-}
+]]></Implementation>
+</Method>
 
-ClassMethod DownloadExternalDependency(url As %String) As %Boolean
-{
+<Method name="DownloadExternalDependency">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>url:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
   try {
     do ..CreateSSLConfig()
     do ##class(%Net.URLParser).Parse(url, .components)
@@ -97,10 +124,12 @@ ClassMethod DownloadExternalDependency(url As %String) As %Boolean
   }
   
   return 1
-}
+]]></Implementation>
+</Method>
 
-ClassMethod CreateSSLConfig()
-{
+<Method name="CreateSSLConfig">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
    new $namespace
    set $namespace = "%SYS"
    
@@ -127,7 +156,14 @@ ClassMethod CreateSSLConfig()
    set p("VerifyPeer")=0
    
    do ##class(Security.SSLConfigs).Create("XPort SSL Configuration", .p)
-}
+]]></Implementation>
+</Method>
+</Class>
 
-}
 
+<Project name="xport-install" LastModified="2019-07-24 17:23:25.947313">
+  <Items>
+    <ProjectItem name="XPort.Installer" type="CLS"></ProjectItem>
+  </Items>
+</Project>
+</Export>
