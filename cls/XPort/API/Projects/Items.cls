@@ -120,7 +120,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
   if '$isobject(project) {
     set projectName = %frontier.RouteParameters("project")
     set project = ##class(XPort.Util.NamespaceCall).CreateProject(namespace, projectName)    
-    set warning = $$$FormatText("Project did not exist so it was created.", projectName)    
+    set warning = $$$FormatText("Project %1 did not exist so it was created.", projectName)    
   }
 
   set payloadIterator = payload.items.%GetIterator()
@@ -195,18 +195,16 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
         $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList, payload.compilerOptions))
       }
       
-      do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)
+      do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
       
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .b)      
+      if binary = 1 set code = []
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
 
-      if code '= "" {
-        do publishedItems.%Push({
-          "name": (itemName),
-          "content": (code),
-          "path": (file.path),
-          "binary": (b)
-        })
-      }
+      do publishedItems.%Push({
+        "name": (itemName),
+        "content": (code),
+        "path": (file.path)
+      })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
       set error.itemName = itemName

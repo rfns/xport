@@ -223,7 +223,7 @@ ClassMethod GetDocumentReferences(namespace As %String, expression As %String, p
   return output
 }
 
-ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Output isBinary As %Boolean = 0, encoding As %String = "") As %Stream.Object
+ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Output isBinary As %Boolean = "") As %Stream.Object
 {
   #dim stream As %Stream.GlobalCharacter
   set code = []
@@ -246,16 +246,15 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
     set code = $$StreamToArray(routine.Code)
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
-    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))    
+    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
+    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))       
     
-    set isBinary = ..IsBinary(ext)
     if 'isBinary {
       set csp.TranslateTable = publicFileOTT
-      set code = $$StreamToArray(csp)
     } else {
       set csp.TranslateTable = "RAW"
-      set code = []
-    }        
+    }         
+    set code = $$StreamToArray(csp)
   }
 
   return code

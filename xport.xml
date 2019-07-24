@@ -409,7 +409,7 @@ GetWebApplicationServingPath(webApp)
   if '$isobject(project) {
     set projectName = %frontier.RouteParameters("project")
     set project = ##class(XPort.Util.NamespaceCall).CreateProject(namespace, projectName)    
-    set warning = $$$FormatText("Project did not exist so it was created.", projectName)    
+    set warning = $$$FormatText("Project %1 did not exist so it was created.", projectName)    
   }
 
   set payloadIterator = payload.items.%GetIterator()
@@ -484,18 +484,16 @@ GetWebApplicationServingPath(webApp)
         $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList, payload.compilerOptions))
       }
       
-      do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)
+      do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
       
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .b)      
+      if binary = 1 set code = []
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
 
-      if code '= "" {
-        do publishedItems.%Push({
-          "name": (itemName),
-          "content": (code),
-          "path": (file.path),
-          "binary": (b)
-        })
-      }
+      do publishedItems.%Push({
+        "name": (itemName),
+        "content": (code),
+        "path": (file.path)
+      })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
       set error.itemName = itemName
@@ -1104,7 +1102,7 @@ This utility is used to handle file deletions from the server along with removin
 
 <Method name="RetrieveItemSourceCode">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,itemName:%String,*isBinary:%Boolean=0,encoding:%String=""</FormalSpec>
+<FormalSpec>namespace:%String,itemName:%String,*isBinary:%Boolean=""</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
   #dim stream As %Stream.GlobalCharacter
@@ -1128,16 +1126,15 @@ This utility is used to handle file deletions from the server along with removin
     set code = $$StreamToArray(routine.Code)
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
-    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))    
+    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
+    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))       
     
-    set isBinary = ..IsBinary(ext)
     if 'isBinary {
       set csp.TranslateTable = publicFileOTT
-      set code = $$StreamToArray(csp)
     } else {
       set csp.TranslateTable = "RAW"
-      set code = []
-    }        
+    }         
+    set code = $$StreamToArray(csp)
   }
 
   return code
