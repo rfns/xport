@@ -146,30 +146,11 @@ GetWebApplicationServingPath(webApp)
 <FormalSpec>namespace:%String,pattern:%String,limit:%Integer=50</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
-  set s = ##class(%SQL.Statement).%New()
-  $$$ThrowOnError(s.%PrepareClassQuery("%RoutineMgr", "StudioOpenDialog"))
-  set c = s.%Execute(pattern,,,1,1)
-
-  set matches = []
-  set hits = 0
-
-  set appPath = ""
-
-  while c.%Next(.sc) {
-    $$$ThrowOnError(sc)
-
-    if hits > limit quit
-    set hits = hits + 1
-
-    set name = c.%Get("Name")
-    set type = c.%Get("Type")
-
-    if type = 9 || (type = 7) continue
-
-    do matches.%Push(name)
+   return {
+    "matches": (
+      ##class(XPort.Util.NamespaceCall).FindDocuments(namespace, pattern, limit)
+    )
   }
-
-  return { "matches": (matches) }
 ]]></Implementation>
 </Method>
 
@@ -1147,6 +1128,9 @@ This utility is used to handle file deletions from the server along with removin
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
     set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
+    if '$isobject(csp) {
+      $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Item '%1' has an invalid application path or doesn't belong to namespace %2.", itemName, namespace)))
+    }
     
     set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))           
     
@@ -1188,6 +1172,50 @@ StreamToArray(stream)
 ]]></Implementation>
 </Method>
 
+<Method name="FindDocuments">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,pattern:%String,limit:%Integer=50</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  $$$ChangeNamespace(namespace)
+  
+  set s = ##class(%SQL.Statement).%New()
+  $$$ThrowOnError(s.%PrepareClassQuery("%RoutineMgr", "StudioOpenDialog"))
+  set c = s.%Execute(pattern,,,1,1,,,,,1)
+
+  set matches = []
+  set hits = 0
+
+  set appPath = ""
+
+  while c.%Next(.sc) {
+    $$$ThrowOnError(sc)
+
+    if hits > limit quit    
+    set hits = hits + 1
+
+    set name = c.%Get("Name")
+    set type = c.%Get("Type")
+
+    if type = 9 || (type = 7) continue
+    set rtn = ##class(%RoutineMgr).%New(name)
+    
+    if type = 5 {    
+      if '$isobject(rtn) || ($isobject(rtn) && ((rtn.Namespace '= "") && (rtn.Namespace '= namespace))) {
+        set rtn = ""
+        continue
+      } else {
+        set rtn = ""
+      }
+    }
+
+    do matches.%Push(name)
+  }
+  
+  return matches
+]]></Implementation>
+</Method>
+
 <Method name="AssertValidProject">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>name:%String,*project:%Studio.Project=""</FormalSpec>
@@ -1211,7 +1239,7 @@ StreamToArray(stream)
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-07-26 14:56:57.914352" Target="test4^xporttest" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="xport" LastModified="2019-07-26 14:56:57.914352" Target="##class(XPort.Util.NamespaceCall).FindDocuments(&quot;DEV&quot;, &quot;/qualix/rconnect/ajudacad.csp&quot;)" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
     <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>

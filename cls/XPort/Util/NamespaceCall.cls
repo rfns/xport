@@ -249,6 +249,9 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
     set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
+    if '$isobject(csp) {
+      $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Item '%1' has an invalid application path or doesn't belong to namespace %2.", itemName, namespace)))
+    }
     
     set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))           
     
@@ -284,6 +287,46 @@ ClassMethod RepairProject(namespace As %String, name As %String)
   $$$ThrowOnError(..AssertValidProject(name, .project))
   $$$ThrowOnError(project.Check())
   $$$ThrowOnError(project.%Save())
+}
+
+ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %Integer = 50) As %DynamicObject
+{
+  $$$ChangeNamespace(namespace)
+  
+  set s = ##class(%SQL.Statement).%New()
+  $$$ThrowOnError(s.%PrepareClassQuery("%RoutineMgr", "StudioOpenDialog"))
+  set c = s.%Execute(pattern,,,1,1,,,,,1)
+
+  set matches = []
+  set hits = 0
+
+  set appPath = ""
+
+  while c.%Next(.sc) {
+    $$$ThrowOnError(sc)
+
+    if hits > limit quit    
+    set hits = hits + 1
+
+    set name = c.%Get("Name")
+    set type = c.%Get("Type")
+
+    if type = 9 || (type = 7) continue
+    set rtn = ##class(%RoutineMgr).%New(name)
+    
+    if type = 5 {    
+      if '$isobject(rtn) || ($isobject(rtn) && ((rtn.Namespace '= "") && (rtn.Namespace '= namespace))) {
+        set rtn = ""
+        continue
+      } else {
+        set rtn = ""
+      }
+    }
+
+    do matches.%Push(name)
+  }
+  
+  return matches
 }
 
 ClassMethod AssertValidProject(name As %String, Output project As %Studio.Project = "") As %Status
