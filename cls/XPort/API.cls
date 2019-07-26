@@ -3,6 +3,8 @@ Class XPort.API Extends Frontier.Router
 
 Parameter UseSession = 1;
 
+Parameter APIVERSION = "0.9.3";
+
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
 <Routes>
@@ -63,7 +65,7 @@ ClassMethod GetAPIInfo() As %DynamicObject
   do ##class(Security.Applications).Get(name, .d)
   
   return {
-    "version": ("0.9.1"),
+    "version": (..#APIVERSION),
     "application": (name),
     "namespace": (d("NameSpace")),
     "dispatcher": (d("DispatchClass"))

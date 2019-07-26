@@ -47,7 +47,10 @@ ClassMethod GetRoutine(namespace As %String, routineName As %String)
 ClassMethod DeleteItem(namespace As %String, itemName) As %Status
 {
   $$$ChangeNamespace(namespace)
-  return ##class(%RoutineMgr).Delete(itemName)
+  set sc = ##class(%RoutineMgr).Delete(itemName)
+  if $$$ISERR(sc) {
+    $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item '"_itemName_ "' because it doesn't exist on the server."))
+  }
 }
 
 ClassMethod ListProjects(namespace As %String) As %DynamicArray
@@ -227,7 +230,6 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
 {
   #dim stream As %Stream.GlobalCharacter
   set code = []
-  set isBinary = 0
 
   set externalPath = ##class(Port.Util).ItemToPath(itemName)
   set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
@@ -247,7 +249,8 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
     set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
-    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))       
+    
+    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))           
     
     if 'isBinary {
       set csp.TranslateTable = publicFileOTT
@@ -255,7 +258,7 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
       set csp.TranslateTable = "RAW"
     }         
     set code = $$StreamToArray(csp)
-  }
+  }   
 
   return code
 

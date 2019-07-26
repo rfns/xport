@@ -8,7 +8,6 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Routes>
 <Route Url="/" Method="GET" Call="ListProjects" />
 <Route Url="/:project" Method="DELETE" Call="DeleteProject" />
-<Route Url="/:project/create" Method="POST" Call="CreateProject"/>
 <Route Url="/:project/xml" Method="GET" Call="GetProjectXML" />
 <Route Url="/:project/compile" Method="POST" Call="CompileProject" />
 <Route Url="/:project/repair" Method="PATCH" Call="RepairProject" />

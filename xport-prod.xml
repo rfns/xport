@@ -8,6 +8,10 @@
 <Default>1</Default>
 </Parameter>
 
+<Parameter name="APIVERSION">
+<Default>0.9.3</Default>
+</Parameter>
+
 <XData name="UrlMap">
 <XMLNamespace>http://github.com/rfns/xport</XMLNamespace>
 <Data><![CDATA[
@@ -81,7 +85,7 @@
   do ##class(Security.Applications).Get(name, .d)
   
   return {
-    "version": ("0.9.1"),
+    "version": (..#APIVERSION),
     "application": (name),
     "namespace": (d("NameSpace")),
     "dispatcher": (d("DispatchClass"))
@@ -212,7 +216,6 @@ GetWebApplicationServingPath(webApp)
 <Routes>
 <Route Url="/" Method="GET" Call="ListProjects" />
 <Route Url="/:project" Method="DELETE" Call="DeleteProject" />
-<Route Url="/:project/create" Method="POST" Call="CreateProject"/>
 <Route Url="/:project/xml" Method="GET" Call="GetProjectXML" />
 <Route Url="/:project/compile" Method="POST" Call="CompileProject" />
 <Route Url="/:project/repair" Method="PATCH" Call="RepairProject" />
@@ -335,20 +338,10 @@ GetWebApplicationServingPath(webApp)
       set type = ##class(Port.Util).GetPathType(sourcePath)
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))
 
-      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type)
-      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))
-
-      set routine = ##class(%RoutineMgr).%New(itemName)
-
-      if '$isobject(routine) {
-        $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item: "_itemName_ " because it doesn't exist on the server."))
-      } elseif type = "PUBLIC" {
-        set path = routine.Code.Filename
-        $$$ThrowOnError(routine.Delete(itemName))
-        $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(path))
-      } else {
-        $$$ThrowOnError(routine.Delete(itemName))
-      }
+      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type, namespace)
+      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))     
+      
+      do ##class(XPort.Util.NamespaceCall).DeleteItem(namespace, itemName)
       do successOnDelete.%Push(itemName)
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -402,7 +395,7 @@ GetWebApplicationServingPath(webApp)
     "success": (successOnRemove),
     "hasErrors": ($select(errorOnRemove.%Size() > 0 : "true", 1: "false")),
     "failure": {
-      "header": ("Failed to remove "_errorOnRemove.%Size()_" items"),
+      "header": "Failed to remove some items: ",
       "items": (errorOnRemove)
     }
   }
@@ -447,7 +440,7 @@ GetWebApplicationServingPath(webApp)
 
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
 
-      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName)
+      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName,,namespace)
       if conflicts '= "" $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
 
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
@@ -619,7 +612,8 @@ AssertClassDefinitionMatch(className)
         "name": (name),
         "content": (code),
         "path": ($$$LTrimSlash(file)),
-        "fileName": (##class(%File).GetFilename(file))
+        "fileName": (##class(%File).GetFilename(file)),
+        "binary": (binary)
       })      
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -660,7 +654,9 @@ AssertClassDefinitionMatch(className)
 
   for i=0:1:payload.files.%Size() - 1 {
     try {
-      set filePath = payload.files.%Get(i)           
+      set filePath = payload.files.%Get(i)
+      set slash = $$$Slash(filePath)
+      if $extract(filePath, 1, 7) [ "public" set filePath = $piece($$$LPadProvidedSlash(filePath, slash), slash, 3, *)
       set itemName = ##class(Port.Util).PathToItem(filePath, namespace)
       set fileBelongsToProject = ##class(Port.Util).ExistsInProject(project.Name, itemName, "", namespace)
       
@@ -674,7 +670,8 @@ AssertClassDefinitionMatch(className)
         "name": (itemName),
         "content": (code),
         "path": ($$$LTrimSlash(filePath)),
-        "fileName": (##class(%File).GetFilename(filePath))
+        "fileName": (##class(%File).GetFilename(filePath)),
+        "binary": ($$$FormatBoolean(binary))
       })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -906,7 +903,10 @@ This utility is used to handle file deletions from the server along with removin
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   $$$ChangeNamespace(namespace)
-  return ##class(%RoutineMgr).Delete(itemName)
+  set sc = ##class(%RoutineMgr).Delete(itemName)
+  if $$$ISERR(sc) {
+    $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item '"_itemName_ "' because it doesn't exist on the server."))
+  }
 ]]></Implementation>
 </Method>
 
@@ -1128,7 +1128,6 @@ This utility is used to handle file deletions from the server along with removin
 <Implementation><![CDATA[
   #dim stream As %Stream.GlobalCharacter
   set code = []
-  set isBinary = 0
 
   set externalPath = ##class(Port.Util).ItemToPath(itemName)
   set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
@@ -1148,7 +1147,8 @@ This utility is used to handle file deletions from the server along with removin
   } else {
     set ext = $$$ucase($piece(itemName, ".", *))
     set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
-    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))       
+    
+    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))           
     
     if 'isBinary {
       set csp.TranslateTable = publicFileOTT
@@ -1156,7 +1156,7 @@ This utility is used to handle file deletions from the server along with removin
       set csp.TranslateTable = "RAW"
     }         
     set code = $$StreamToArray(csp)
-  }
+  }   
 
   return code
 

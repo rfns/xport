@@ -33,20 +33,10 @@ ClassMethod DeleteItems(namespace As %String, projectName As %String(ALIAS="proj
       set type = ##class(Port.Util).GetPathType(sourcePath)
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))
 
-      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type)
-      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))
-
-      set routine = ##class(%RoutineMgr).%New(itemName)
-
-      if '$isobject(routine) {
-        $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item: "_itemName_ " because it doesn't exist on the server."))
-      } elseif type = "PUBLIC" {
-        set path = routine.Code.Filename
-        $$$ThrowOnError(routine.Delete(itemName))
-        $$$ThrowOnError(##class(XPort.Util.FileRemover).RemoveOne(path))
-      } else {
-        $$$ThrowOnError(routine.Delete(itemName))
-      }
+      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type, namespace)
+      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))     
+      
+      do ##class(XPort.Util.NamespaceCall).DeleteItem(namespace, itemName)
       do successOnDelete.%Push(itemName)
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -96,7 +86,7 @@ ClassMethod RemoveItems(namespace As %String, project As %String, payload As %Dy
     "success": (successOnRemove),
     "hasErrors": ($select(errorOnRemove.%Size() > 0 : "true", 1: "false")),
     "failure": {
-      "header": ("Failed to remove "_errorOnRemove.%Size()_" items"),
+      "header": "Failed to remove some items: ",
       "items": (errorOnRemove)
     }
   }
@@ -137,7 +127,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
 
-      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName)
+      set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName,,namespace)
       if conflicts '= "" $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
 
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
@@ -301,7 +291,8 @@ ClassMethod ListItemSources(namespace As %String, project As %String, page As %I
         "name": (name),
         "content": (code),
         "path": ($$$LTrimSlash(file)),
-        "fileName": (##class(%File).GetFilename(file))
+        "fileName": (##class(%File).GetFilename(file)),
+        "binary": (binary)
       })      
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -338,7 +329,9 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
 
   for i=0:1:payload.files.%Size() - 1 {
     try {
-      set filePath = payload.files.%Get(i)           
+      set filePath = payload.files.%Get(i)
+      set slash = $$$Slash(filePath)
+      if $extract(filePath, 1, 7) [ "public" set filePath = $piece($$$LPadProvidedSlash(filePath, slash), slash, 3, *)
       set itemName = ##class(Port.Util).PathToItem(filePath, namespace)
       set fileBelongsToProject = ##class(Port.Util).ExistsInProject(project.Name, itemName, "", namespace)
       
@@ -352,7 +345,8 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
         "name": (itemName),
         "content": (code),
         "path": ($$$LTrimSlash(filePath)),
-        "fileName": (##class(%File).GetFilename(filePath))
+        "fileName": (##class(%File).GetFilename(filePath)),
+        "binary": ($$$FormatBoolean(binary))
       })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
