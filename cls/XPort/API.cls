@@ -17,7 +17,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 
 ClassMethod OnSetup() As %Status
 {
-  #dim %frontier As Frontier.Context
+  #dim %frontier As Frontier.Context  
 
   // Disables path normalization and tries to resolve using the received path syntax.
   set ^||Port.Internals.Configuration("remote") = 1

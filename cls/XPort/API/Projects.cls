@@ -34,10 +34,10 @@ ClassMethod DeleteProject(namespace As %String, project As %String) As %DynamicO
   }
 }
 
-ClassMethod CompileProject(namespace As %String, project As %String, options As %String = "cku", legacySourceControl As %Boolean = 0) As %DynamicObject
+ClassMethod CompileProject(namespace As %String, project As %String, options As %DynamicObject = {{ "flags": "cku", "hooks": true }}) As %DynamicObject
 {
-  set options = options_"/nodisplayerror"
-  $$$CheckLegacySourceControl(legacySourceControl)
+  set options = options.flags_"/nodisplayerror"
+  $$$CheckLegacySourceControl(options.hooks)
 
   set sc = ##class(Frontier.Shared.Utilities).CallAndCapture("XPort.Util.NamespaceCall", "CompileProject", .output, namespace, project, options)
   $$$ThrowOnError(##class(XPort.Util.DynamicStatus).ToDynamicObject(sc, .error))

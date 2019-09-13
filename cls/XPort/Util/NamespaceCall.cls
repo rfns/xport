@@ -17,14 +17,14 @@ ClassMethod SetItemLock(namespace As %String, itemName As %String, lock As %Bool
   return ##class(%RoutineMgr).LockItem(itemName, lock)
 }
 
-ClassMethod CompileList(namespace As %String, ByRef compileList As %String = "", qspec As %String = "cku") As %Status
+ClassMethod CompileList(namespace As %String, ByRef compileList As %String = "", Output out As %Stream.Object = "", qspec As %String = "cku") As %Status
 {
   $$$ChangeNamespace(namespace)
   set compileErrors = 0
 
   set sc = $$$OK
-
-  do $System.OBJ.CompileList(.compileList, qspec_"/nodisplay", .compileErrors)
+  
+  set sc = ##class(Frontier.Shared.Utilities).CallAndCapture("%SYSTEM.OBJ", "CompileList", .out, .compileList, qspec, .compileErrors)
 
   if compileErrors > 0 {
     for c=1:1:compileErrors {
@@ -65,7 +65,6 @@ ClassMethod ListProjects(namespace As %String) As %DynamicArray
 
   while c.%Next() {
     set name = c.%Get("Name")
-    if name [ "Default" continue
     &sql(SELECT TOP 1 NAME into :item FROM %STUDIO.PROJECTITEM WHERE PROJECT = :name)
     set hasItems = $select(item '= "" : "true", 1: "false")
     do projects.%Push({ "name": (name), "has_items": (hasItems) })
@@ -273,9 +272,9 @@ StreamToArray(stream)
 
   while 'stream.AtEnd {
     if 'isBinary {
-      do array.%Push(stream.ReadLine())
+      do array.%Push(stream.Read(12000))
     } else {
-      do array.%Push($System.Encryption.Base64Encode(stream.Read(.len), 1))
+      do array.%Push($System.Encryption.Base64Encode(stream.Read(12000), 1))
     }
   }
   return array

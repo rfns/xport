@@ -28,7 +28,7 @@
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  #dim %frontier As Frontier.Context
+  #dim %frontier As Frontier.Context  
 
   // Disables path normalization and tries to resolve using the received path syntax.
   set ^||Port.Internals.Configuration("remote") = 1
@@ -236,11 +236,11 @@ GetWebApplicationServingPath(webApp)
 
 <Method name="CompileProject">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,project:%String,options:%String="cku",legacySourceControl:%Boolean=0</FormalSpec>
+<FormalSpec>namespace:%String,project:%String,options:%DynamicObject={{ "flags": "cku", "hooks": true }}</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
-  set options = options_"/nodisplayerror"
-  $$$CheckLegacySourceControl(legacySourceControl)
+  set options = options.flags_"/nodisplayerror"
+  $$$CheckLegacySourceControl(options.hooks)
 
   set sc = ##class(Frontier.Shared.Utilities).CallAndCapture("XPort.Util.NamespaceCall", "CompileProject", .output, namespace, project, options)
   $$$ThrowOnError(##class(XPort.Util.DynamicStatus).ToDynamicObject(sc, .error))
@@ -295,6 +295,7 @@ GetWebApplicationServingPath(webApp)
   <Route Url="/remove" Method="POST" Call="RemoveItems"/>
   <Route Url="/delete" Method="POST" Call="DeleteItems"/>
   <Route Url="/paths" Method="GET" Call="GetItemPaths"/>
+  <Route Url="/compile" Method="POST" Call="CompileItems"/>
 </Routes>
 ]]></Data>
 </XData>
@@ -391,6 +392,8 @@ GetWebApplicationServingPath(webApp)
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set project = ##class(XPort.Util.NamespaceCall).GetProject(namespace, project, 1)
+  
+  #define SourceLineTerminator $select($f(source(1), $c(13, 10)) > 0 : $c(13,10), 1: $c(10))
 
   set errorOnPublish = []
   set publishedItems = []
@@ -434,14 +437,18 @@ GetWebApplicationServingPath(webApp)
       while iterator.%GetNext(.key, .line) {
         set source(0) = key + 1        
         set source(source(0)) = line
-      }      
+      }
+      
+      if '$data(source(1)) {
+        $$$ThrowStatus($$$ERROR($$$GeneralError, "File is empty."))
+      }
 
       do ##class(XPort.Util.NamespaceCall).SetItemLock(namespace, itemName, 1)
 
       $$$CheckLegacySourceControl(callLegacySourceControl)
 
       if ##class(Port.Util).IsRoutine(itemName) || (itemType = "CSP") {
-        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)
+        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)        
         set extension = $$$ucase($piece(itemName, ".", *))
         
         if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid item name."))
@@ -453,12 +460,15 @@ GetWebApplicationServingPath(webApp)
           if binary = 1 {
             set routine.Code.TranslateTable = "RAW"
             set routine.Code.StreamFormatWrite = 0
+          } else {
+            set routine.Code.LineTerminator = $$$SourceLineTerminator
           }
           
           if extension = "CSP" || (extension = "CSR") {
             set compileList(itemName) = ""
           }
         } else {
+          set routine.Code.LineTerminator = $$$SourceLineTerminator          
           set compileList(itemName) = ""
         }
 
@@ -469,14 +479,15 @@ GetWebApplicationServingPath(webApp)
         $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
 
         set stream = ##class(%Stream.GlobalCharacter).%New()
+        set stream.LineTerminator = $$$SourceLineTerminator
         $$$ThrowOnError($$WriteToStream(stream))
 
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
         set compileList(itemName) = ""
       }
 
-      if $order(compileList("")) '= "" {
-        $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList, payload.compilerOptions))
+      if payload.%IsDefined("flags") && ($order(compileList("")) '= "") {
+        $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList, payload.flags_"/nodisplay"))
       }
       
       do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
@@ -512,15 +523,11 @@ WriteToStream(stream)
   set sc = $$$OK
   do stream.Clear()   
 
-  for i=1:1:source(0) {
-    if 'binary {      
-      set chunk = $zstrip(source(i), "*C'W",, $c(10,13,9))
-      $$$ReturnOnError(stream.WriteLine(chunk))
-    } else {
-      set chunk = $System.Encryption.Base64Decode(source(i))
-      $$$ReturnOnError(stream.Write(chunk))
-    }
+  for i=1:1:source(0) { 
+    set chunk = $case(binary, 1: $System.Encryption.Base64Decode(source(i)), : source(i))
+    $$$ReturnOnError(stream.Write(chunk))
   }
+  do stream.Rewind()
   do stream.Rewind()
   return $$$OK
 
@@ -537,7 +544,6 @@ AssertClassDefinitionMatch(className)
       return $$$OK
     }
   }
-  if c = source(0) return $$$ERROR($$$GeneralError, $$$FormatText("Item '%1' is not a valid class.", className))
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -673,6 +679,58 @@ AssertClassDefinitionMatch(className)
 <Implementation><![CDATA[
   set count = ##class(XPort.Util.NamespaceCall).CountProjectItems(namespace, project)
   return { "count": (count) }
+]]></Implementation>
+</Method>
+
+<Method name="CompileItems">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,project:%String,payload:%DynamicObject={{ "flags": "cku", "hooks": false, "items": [] }}</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  
+  // We must respect the project restriction, so we don't let the compilation run if
+  // the item is not added into the specified project.
+  do ##class(XPort.Util.NamespaceCall).GetProject(namespace, project)
+  
+  set options = payload.flags
+  $$$CheckLegacySourceControl(payload.hooks)
+  
+  set items = ""
+  
+  for i=0:1:payload.items.%Size() - 1 {
+    set path = payload.items.%Get(i)
+    set itemName = ##class(Port.Util).PathToItem(path, namespace)    
+    set items(itemName) = ""
+  }  
+  
+  use %frontier.OutputDevice
+  set sc = ##class(XPort.Util.NamespaceCall).CompileList(namespace, .items, .output, payload.flags)
+  use $$$NULL
+  
+  $$$ThrowOnError(##class(XPort.Util.DynamicStatus).ToDynamicObject(sc, .error))
+  
+  set log = []
+  set errors = []
+
+  if $isobject(error) {
+    if 'error.%IsA("%DynamicArray") set errors = [(error)]
+    else  set errors = error
+  }
+
+  if $$$ISOK(sc) && $isobject(output) {
+    while 'output.AtEnd {
+      set line = output.ReadLine()
+      if line?.A1":".ANPCZFWCHARZZHWKATAZ = 1 continue
+      if line [ "TEXT:" continue     
+      if $extract(line, 1, 2) = ", " set line = $extract(line, 3, *)
+      if line '= "" do log.%Push(line)
+    }
+  }
+
+  return {
+    "errors": (errors),
+    "log": (log)
+  }
 ]]></Implementation>
 </Method>
 </Class>
@@ -846,15 +904,15 @@ This utility is used to handle file deletions from the server along with removin
 
 <Method name="CompileList">
 <ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[namespace:%String,&compileList:%String="",qspec:%String="cku"]]></FormalSpec>
+<FormalSpec><![CDATA[namespace:%String,&compileList:%String="",*out:%Stream.Object="",qspec:%String="cku"]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   $$$ChangeNamespace(namespace)
   set compileErrors = 0
 
   set sc = $$$OK
-
-  do $System.OBJ.CompileList(.compileList, qspec_"/nodisplay", .compileErrors)
+  
+  set sc = ##class(Frontier.Shared.Utilities).CallAndCapture("%SYSTEM.OBJ", "CompileList", .out, .compileList, qspec, .compileErrors)
 
   if compileErrors > 0 {
     for c=1:1:compileErrors {
@@ -906,7 +964,6 @@ This utility is used to handle file deletions from the server along with removin
 
   while c.%Next() {
     set name = c.%Get("Name")
-    if name [ "Default" continue
     &sql(SELECT TOP 1 NAME into :item FROM %STUDIO.PROJECTITEM WHERE PROJECT = :name)
     set hasItems = $select(item '= "" : "true", 1: "false")
     do projects.%Push({ "name": (name), "has_items": (hasItems) })
@@ -1152,9 +1209,9 @@ StreamToArray(stream)
 
   while 'stream.AtEnd {
     if 'isBinary {
-      do array.%Push(stream.ReadLine())
+      do array.%Push(stream.Read(12000))
     } else {
-      do array.%Push($System.Encryption.Base64Encode(stream.Read(.len), 1))
+      do array.%Push($System.Encryption.Base64Encode(stream.Read(12000), 1))
     }
   }
   return array
@@ -1235,11 +1292,11 @@ StreamToArray(stream)
 #define ReturnOnError(%sc) set sc = %sc return:$$$ISERR(sc) sc
 #define AddAndContinue(%sc) set cSC = %sc set sc = $$$ADDSC(sc, cSC) continue:$$$ISERR(cSC)
 #define ChangeNamespace(%ns) new $namespace try { set $namespace = %ns } catch ex { $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid namespace "_%ns_".")) }
-#define CheckLegacySourceControl(%legacy) if %legacy = 1 $$$ThrowOnError(##class(%Studio.SourceControl.Interface).SourceControlCreate($username,"",.created,.flags,.username,"",.reload,"",.iconStatus))
+#define CheckLegacySourceControl(%legacy) if %legacy = 1 $$$ThrowOnError(##class(%Studio.SourceControl.Interface).SourceControlCreate($username,"",.created,.flags,.username,"",.reaload,"",.iconStatus))
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-07-26 14:56:57.914352" Target="##class(XPort.Util.NamespaceCall).FindDocuments(&quot;DEV&quot;, &quot;/qualix/rconnect/ajudacad.csp&quot;)" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="xport" LastModified="2019-09-13 14:52:43.872372" Target="##class(XPort.Util.NamespaceCall).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
     <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>
@@ -1251,7 +1308,8 @@ StreamToArray(stream)
     <ProjectItem name="xport.INC" type="MAC"></ProjectItem>
   </Items>
   <BreakPoints>
-    <BreakPoint Routine="XPort.Util.NamespaceCall.1.INT" Offset="63"></BreakPoint>
+    <BreakPoint Routine="Frontier.Shared.Utilities.CLS" Offset="CallAndCapture+22"></BreakPoint>
+    <BreakPoint Routine="XPort.Util.NamespaceCall.1.INT" Offset="23"></BreakPoint>
   </BreakPoints>
 </Project>
 </Export>
