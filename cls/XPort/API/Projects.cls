@@ -36,8 +36,15 @@ ClassMethod DeleteProject(namespace As %String, project As %String) As %DynamicO
 
 ClassMethod CompileProject(namespace As %String, project As %String, options As %DynamicObject = {{ "flags": "cku", "hooks": true }}) As %DynamicObject
 {
-  set options = options.flags_"/nodisplayerror"
+  
+  if $data(^CacheTemp.XPort("PendingCompilation")) {
+    return %frontier.ThrowException("You need to wait to finish the current compilation before starting a new one.", ..#HTTP423LOCKED)
+  }
+    
+  set options.flags = options.flags_"/nodisplayerror"
   $$$CheckLegacySourceControl(options.hooks)
+  
+  set ^CacheTemp.XPort("PendingCompilation") = 1
 
   set sc = ##class(Frontier.Shared.Utilities).CallAndCapture("XPort.Util.NamespaceCall", "CompileProject", .output, namespace, project, options)
   $$$ThrowOnError(##class(XPort.Util.DynamicStatus).ToDynamicObject(sc, .error))
@@ -57,6 +64,8 @@ ClassMethod CompileProject(namespace As %String, project As %String, options As 
     }
   }
 
+
+  kill ^CacheTemp.XPort("PendingCompilation")
   return {
     "errors": (errors),
     "log": (log)

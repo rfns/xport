@@ -105,7 +105,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
   set publishedItems = []
   set compileList = ""
   set compileErrors = ""
-  set sc = $$$OK
+  set sc = $$$OK  
 
   set warning = ""
   set sc = $$$ERROR($$$GeneralError, "No valid item has been found.")
@@ -125,7 +125,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       set itemName = ##class(Port.Util).PathToItem(file.path, namespace)
       set type = ##class(Port.Util).GetPathType(file.path)
       set itemType = ##class(Port.Util).GetItemType(itemName)
-      set fileName = ##class(%File).GetFilename(file.path)
+      set fileName = ##class(%File).GetFilename(file.path)      
       set binary = 0
 
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
@@ -154,38 +154,39 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       $$$CheckLegacySourceControl(callLegacySourceControl)
 
       if ##class(Port.Util).IsRoutine(itemName) || (itemType = "CSP") {
-        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)        
+        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)
         set extension = $$$ucase($piece(itemName, ".", *))
         
         if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid item name."))
 
         if itemType = "CSP" {          
           set binary = $select(file.%IsDefined("binary") : file.binary, 1: ##class(XPort.Util.NamespaceCall).IsBinary(extension))
-          set routine.Code.TranslateTable = ##class(Port.Configuration).GetPublicFileInputTranslateTable()
           
           if binary = 1 {
             set routine.Code.TranslateTable = "RAW"
             set routine.Code.StreamFormatWrite = 0
           } else {
             set routine.Code.LineTerminator = $$$SourceLineTerminator
+            set routine.Code.TranslateTable = file.encoding.in
           }
           
           if extension = "CSP" || (extension = "CSR") {
             set compileList(itemName) = ""
-          }
+          }          
         } else {
           set routine.Code.LineTerminator = $$$SourceLineTerminator          
           set compileList(itemName) = ""
         }
-
+                        
         $$$ThrowOnError($$WriteToStream(routine.Code))
         $$$ThrowOnError(routine.%Save())
       } elseif type = "CLS" {
         // Both the file name and the class name must match.
-        $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
+        $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))               
 
-        set stream = ##class(%Stream.GlobalCharacter).%New()
+        set stream = ##class(%Stream.FileCharacter).%New()
         set stream.LineTerminator = $$$SourceLineTerminator
+        set stream.TranslateTable = file.encoding.in
         $$$ThrowOnError($$WriteToStream(stream))
 
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
@@ -198,8 +199,8 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       
       do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
       
-      if binary = 1 set code = []
-      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
+      if binary = 1 || (file.refresh '= 1) set code = []
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding.out)
 
       do publishedItems.%Push({
         "name": (itemName),
@@ -227,13 +228,13 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
 WriteToStream(stream)
   set sc = $$$OK
-  do stream.Clear()   
+  do stream.Clear()  
 
   for i=1:1:source(0) { 
     set chunk = $case(binary, 1: $System.Encryption.Base64Decode(source(i)), : source(i))
     $$$ReturnOnError(stream.Write(chunk))
   }
-  do stream.Rewind()
+  
   do stream.Rewind()
   return $$$OK
 
@@ -290,7 +291,7 @@ ClassMethod ListItemSources(namespace As %String, project As %String, page As %I
    
     try {
       set file = ##class(Port.Util).ItemToPath(name)
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, name, .binary)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, name, "RAW", .binary, .lastModified)
       
       do result.success.%Push({
         "index": (index),
@@ -298,7 +299,8 @@ ClassMethod ListItemSources(namespace As %String, project As %String, page As %I
         "content": (code),
         "path": ($$$LTrimSlash(file)),
         "fileName": (##class(%File).GetFilename(file)),
-        "binary": (binary)
+        "binary": ($$$FormatBoolean($s(binary '= "" : 1, 1: 0))),
+        "lastModified": (lastModified)
       })      
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
@@ -335,7 +337,8 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
 
   for i=0:1:payload.files.%Size() - 1 {
     try {
-      set filePath = payload.files.%Get(i)
+      set file = payload.files.%Get(i)
+      set filePath = file.path
       set slash = $$$Slash(filePath)
       if $extract(filePath, 1, 7) [ "public" set filePath = $piece($$$LPadProvidedSlash(filePath, slash), slash, 3, *)
       set itemName = ##class(Port.Util).PathToItem(filePath, namespace)
@@ -345,14 +348,15 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
         $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or does not exist."))
       }
       
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .binary)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding, .binary, .lastModified)
 
       do result.success.%Push({
         "name": (itemName),
         "content": (code),
         "path": ($$$LTrimSlash(filePath)),
         "fileName": (##class(%File).GetFilename(filePath)),
-        "binary": ($$$FormatBoolean(binary))
+        "binary": ($$$FormatBoolean($s(binary '= "" : 1, 1: 0))),
+        "lastModified": (lastModified)
       })
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)

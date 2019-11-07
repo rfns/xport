@@ -225,7 +225,7 @@ ClassMethod GetDocumentReferences(namespace As %String, expression As %String, p
   return output
 }
 
-ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Output isBinary As %Boolean = "") As %Stream.Object
+ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, encoding As %String, Output isBinary As %Boolean = "", Output lastModified As %String = "") As %Stream.Object
 {
   #dim stream As %Stream.GlobalCharacter
   set code = []
@@ -233,35 +233,35 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, Ou
   set externalPath = ##class(Port.Util).ItemToPath(itemName)
   set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
   
-  set publicFileOTT = ##class(Port.Configuration).GetPublicFileOutputTranslateTable()  
-  set routineOTT = ##class(Port.Configuration).GetRoutineOutputTranslateTable()
-  
   $$$ChangeNamespace(namespace)
 
   if pathType = "CLS" {
     $$$ThrowOnError(##class(%Compiler.UDL.TextServices).GetTextAsStream(namespace, itemName, .content))
     set code = $$StreamToArray(content)
+    set lastModified = $$$ToISODate($piece(##class(%RoutineMgr).TS(itemName), ".", 1))
   } elseif ##class(Port.Util).IsRoutine(itemName) {    
     set routine = ##class(%RoutineMgr).%OpenId(itemName)
     if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$RoutineDoesNotExist, itemName))
     set code = $$StreamToArray(routine.Code)
-  } else {
+    set lastModified = $$$ToISODate($piece(##class(%RoutineMgr).TS(itemName), ".", 1))
+  } else {    
     set ext = $$$ucase($piece(itemName, ".", *))
-    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))
+    set csp = ##class(%CSP.Routine).%New($$$LPadProvidedSlash(itemName, "/"))    
     if '$isobject(csp) {
       $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Item '%1' has an invalid application path or doesn't belong to namespace %2.", itemName, namespace)))
     }
     
-    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))           
+    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))
+    set lastModified = $$$ToISODate(##class(%RoutineMgr).TS(itemName))
     
     if 'isBinary {
-      set csp.TranslateTable = publicFileOTT
+      set csp.TranslateTable = encoding
     } else {
       set csp.TranslateTable = "RAW"
     }         
     set code = $$StreamToArray(csp)
   }   
-
+  
   return code
 
 StreamToArray(stream)

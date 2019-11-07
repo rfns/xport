@@ -8,7 +8,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Routes>
 <Route Url="/find" Method="GET" UseAuth="true" Call="FindDocuments"/>
 <Route Url="/raw/?(.*)?" Strict="false" UseAuth="false" Method="GET" Call="GetRawFile"/>
-<Route Url="/preview/?(.*)?" Strict="false" Method="GET" Call="PreviewDocument" />
+<Route Url="/preview/(.*)?" Strict="false" Method="GET" Call="PreviewDocument" />
 <Route Url="/references" Method="GET" Call="GetDocumentReferences" />
 </Routes>
 }
@@ -17,7 +17,7 @@ ClassMethod GetRawFile(namespace As %String) As %Status
 {
   
   set path = $$GetWebApplicationServingPath(.webApp)
-  return %frontier.Files.ServeFile(path)
+  return %frontier.Files.ServeFile(path, "raw")
   
 GetWebApplicationServingPath(webApp)
   // Makes sure we don't fetch the /public part
@@ -47,13 +47,13 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
   }
 }
 
-ClassMethod PreviewDocument(namespace As %String) As %DynamicObject
+ClassMethod PreviewDocument(namespace As %String, encoding As %String) As %DynamicObject
 {
   set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
   set itemName = ##class(Port.Util).PathToItem(match, namespace)
-  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .binary)
+  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary)
   set ext = $piece(itemName, ".", *)  
-  return { "binary": ($$$FormatBoolean(binary)), "preview": (code) }
+  return { "binary": ($$$FormatBoolean(binary)), "preview": (code), "encoding": (encoding) }
 }
 
 ClassMethod GetDocumentReferences(namespace As %String, expression As %String, pattern As %String, includeSystemDocs As %Boolean = 1, wholeWords As %Boolean = 0, caseSensitive As %Boolean = 0, max As %Integer = 50, filter As %String = "", wild As %Boolean = 0) As %DynamicObject
