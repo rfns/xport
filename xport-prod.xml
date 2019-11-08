@@ -9,7 +9,7 @@
 </Parameter>
 
 <Parameter name="APIVERSION">
-<Default>0.10.1</Default>
+<Default>0.13.0</Default>
 </Parameter>
 
 <XData name="UrlMap">
