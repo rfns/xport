@@ -156,14 +156,14 @@ GetWebApplicationServingPath(webApp)
 
 <Method name="PreviewDocument">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String</FormalSpec>
+<FormalSpec>namespace:%String,encoding:%String</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
   set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
   set itemName = ##class(Port.Util).PathToItem(match, namespace)
-  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .binary)
+  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary)
   set ext = $piece(itemName, ".", *)  
-  return { "binary": ($$$FormatBoolean(binary)), "preview": (code) }
+  return { "binary": ($$$FormatBoolean(binary)), "preview": (code), "encoding": (encoding) }
 ]]></Implementation>
 </Method>
 
@@ -408,7 +408,7 @@ GetWebApplicationServingPath(webApp)
   set publishedItems = []
   set compileList = ""
   set compileErrors = ""
-  set sc = $$$OK
+  set sc = $$$OK  
 
   set warning = ""
   set sc = $$$ERROR($$$GeneralError, "No valid item has been found.")
@@ -428,7 +428,7 @@ GetWebApplicationServingPath(webApp)
       set itemName = ##class(Port.Util).PathToItem(file.path, namespace)
       set type = ##class(Port.Util).GetPathType(file.path)
       set itemType = ##class(Port.Util).GetItemType(itemName)
-      set fileName = ##class(%File).GetFilename(file.path)
+      set fileName = ##class(%File).GetFilename(file.path)      
       set binary = 0
 
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
@@ -457,39 +457,39 @@ GetWebApplicationServingPath(webApp)
       $$$CheckLegacySourceControl(callLegacySourceControl)
 
       if ##class(Port.Util).IsRoutine(itemName) || (itemType = "CSP") {
-        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)        
+        set routine = ##class(XPort.Util.NamespaceCall).GetRoutine(namespace, itemName)
         set extension = $$$ucase($piece(itemName, ".", *))
         
         if '$isobject(routine) $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid item name."))
 
         if itemType = "CSP" {          
           set binary = $select(file.%IsDefined("binary") : file.binary, 1: ##class(XPort.Util.NamespaceCall).IsBinary(extension))
-          set routine.Code.TranslateTable = ##class(Port.Configuration).GetPublicFileInputTranslateTable()
           
           if binary = 1 {
             set routine.Code.TranslateTable = "RAW"
             set routine.Code.StreamFormatWrite = 0
           } else {
             set routine.Code.LineTerminator = $$$SourceLineTerminator
+            set routine.Code.TranslateTable = file.encoding.in
           }
           
           if extension = "CSP" || (extension = "CSR") {
             set compileList(itemName) = ""
-          }
+          }          
         } else {
           set routine.Code.LineTerminator = $$$SourceLineTerminator          
           set compileList(itemName) = ""
         }
-
+                        
         $$$ThrowOnError($$WriteToStream(routine.Code))
         $$$ThrowOnError(routine.%Save())
       } elseif type = "CLS" {
         // Both the file name and the class name must match.
-        $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
+        $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))               
 
         set stream = ##class(%Stream.FileCharacter).%New()
         set stream.LineTerminator = $$$SourceLineTerminator
-        set stream.TranslateTable = ##class(Port.Configuration).GetRoutineInputTranslateTable()
+        set stream.TranslateTable = file.encoding.in
         $$$ThrowOnError($$WriteToStream(stream))
 
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
@@ -502,8 +502,8 @@ GetWebApplicationServingPath(webApp)
       
       do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
       
-      if binary = 1 || (itemType = "CSP") set code = []
-      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName)
+      if binary = 1 || (file.refresh '= 1) set code = []
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding.out)
 
       do publishedItems.%Push({
         "name": (itemName),
@@ -531,13 +531,13 @@ GetWebApplicationServingPath(webApp)
 
 WriteToStream(stream)
   set sc = $$$OK
-  do stream.Clear()   
+  do stream.Clear()  
 
   for i=1:1:source(0) { 
     set chunk = $case(binary, 1: $System.Encryption.Base64Decode(source(i)), : source(i))
     $$$ReturnOnError(stream.Write(chunk))
   }
-  do stream.Rewind()
+  
   do stream.Rewind()
   return $$$OK
 
@@ -602,7 +602,7 @@ AssertClassDefinitionMatch(className)
    
     try {
       set file = ##class(Port.Util).ItemToPath(name)
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, name, .binary, .lastModified)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, name, "RAW", .binary, .lastModified)
       
       do result.success.%Push({
         "index": (index),
@@ -652,7 +652,8 @@ AssertClassDefinitionMatch(className)
 
   for i=0:1:payload.files.%Size() - 1 {
     try {
-      set filePath = payload.files.%Get(i)
+      set file = payload.files.%Get(i)
+      set filePath = file.path
       set slash = $$$Slash(filePath)
       if $extract(filePath, 1, 7) [ "public" set filePath = $piece($$$LPadProvidedSlash(filePath, slash), slash, 3, *)
       set itemName = ##class(Port.Util).PathToItem(filePath, namespace)
@@ -662,7 +663,7 @@ AssertClassDefinitionMatch(className)
         $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or does not exist."))
       }
       
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, .binary, .lastModified)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding, .binary, .lastModified)
 
       do result.success.%Push({
         "name": (itemName),
@@ -742,222 +743,6 @@ AssertClassDefinitionMatch(className)
   return {
     "errors": (errors),
     "log": (log)
-  }
-]]></Implementation>
-</Method>
-</Class>
-
-
-<Class name="XPort.API.Queue">
-<Super>Frontier.Router</Super>
-<TimeCreated>65272,61996.368847</TimeCreated>
-
-<XData name="UrlMap">
-<Data><![CDATA[
-<Routes>
-  <Route Url="/compile"  Method="POST" Call="EnqueueCompilation"/>
-  <Route Url="/compile"  Method="DELETE" Call="RemoveQueue"/>
-  <Route Url="/compile/stats/:project" Method="GET" Call="GetStats" />
-</Routes>
-]]></Data>
-</XData>
-
-<Method name="EnqueueCompilation">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,payload:%DynamicObject</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-
-  if $data(^CacheTemp.XPort.Queue(payload.project, "running")) {
-    return %frontier.ThrowException("There's already a queue running for this project.")
-  }
-    
-  do ##class(XPort.Util.NamespaceCall).GetProject(namespace, payload.project)
-  set count = ##class(XPort.Util.NamespaceCall).CountProjectItems(namespace, payload.project)
-  
-  set page = 1
-  set list = ""
-  
-  set ^CacheTemp.XPort.Queue(payload.project, "running") = 1
-  set ^CacheTemp.XPort.Queue(payload.project, "stats", "page") = page
-  set ^CacheTemp.XPort.Queue(payload.project, "stats", "count") = count
-  set ^CacheTemp.XPort.Queue(payload.project, "stats", "percent") = $System.SQL.FLOOR((100 * (page * 20)) / count)
-  
-  // completeRatio = Math.floor((100 * limit) / paths.length)
-  
-  while 1 {
-    set items = ##class(XPort.Util.NamespaceCall).ListProjectItems(namespace, payload.project, page, 20)
-    quit:('$isobject(items) || (items.%Size() = 0))
-        
-    set innerPayload = { 
-      "project": (payload.project), 
-      "items": [],
-      "flags": (payload.flags)
-    }
-    
-    for i=1:1:items.%Size() - 1  {
-      do innerPayload.items.%Push(##class(Port.Util).ItemToPath(items.%Get(i)))
-    }
-    
-    job CompileNext(innerPayload)::10
-    set result = $System.Event.Wait("JobCompile")
-    set page = page + 1
-  }
-    
-  kill ^CacheTemp.XPort.Queue(payload.project, "running")
-  
-CompileNext(pload)
-  set error = ""
-  set response = ##class(XPort.API.Projects.Items).CompileItems(namespace, pload.project, )
-  do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, response)
-  
-  while $isobject(str) && 'str.AtEnd {
-    set ^CacheTemp.XPort.Queue(payload.project, "response", page) = $get(^CacheTemp.XPort.Queue(payload.project, "response", page))_response.Read()
-  }  
-  
-  do $System.Event.Signal("JobCompile")
-  quit
-]]></Implementation>
-</Method>
-
-<Method name="RemoveQueue">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>project:%String</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  set existed = $data(^CacheTemp.XPort.Queue(project))
-  return { "killed": (existed) }
-]]></Implementation>
-</Method>
-
-<Method name="GetStats">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>project:%String</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  if '$data(^CacheTemp.XPort.Queue(project)) {
-    return %frontier.ThrowException("No compilation tasks were queued for this project.", ..#HTTP404NOTFOUND)
-  }
-  
-  return {
-    "page": (^CacheTemp.XPort.Queue(project, "stats", "page")),
-    "percent": (^CacheTemp.XPort.Queue(project, "stats", "percent")),
-    "count": (^CacheTemp.XPort.Queue(project, "stats", "count"))
-  }
-]]></Implementation>
-</Method>
-</Class>
-
-
-<Class name="XPort.API.Tasks">
-<Super>Frontier.Router</Super>
-<TimeCreated>65273,40074.601164</TimeCreated>
-
-<XData name="UrlMap">
-<Data><![CDATA[
-<Routes>
-  <Route Url="/compile"  Method="POST" Call="StartBackgroundCompilation"/>
-  <Route Url="/stats/:project"  Method="DELETE" Call="RemoveCompilationStats"/>
-  <Route Url="/stats/:project" Method="GET" Call="GetStats" />
-</Routes>
-]]></Data>
-</XData>
-
-<Method name="StartBackgroundCompilation">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,payload:%DynamicObject</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  
-  if $get(^CacheTemp.XPort.Queue(payload.project, "running")) = 1 {
-    return %frontier.ThrowException("There's already a compilation task running for this project.")
-  }
-    
-  do ##class(XPort.Util.NamespaceCall).GetProject(namespace, payload.project)
-  job ##class(XPort.API.Tasks).batchCompile(namespace, payload)::10
-  
-  do %frontier.Status(..#HTTP201CREATED)
-  do %frontier.Raw()
-    
-  return ""
-]]></Implementation>
-</Method>
-
-<Method name="batchCompile">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,payload:%DynamicObject</FormalSpec>
-<Implementation><![CDATA[
-  set page = 1
-  set list = ""
-   
-  set count = ##class(XPort.Util.NamespaceCall).CountProjectItems(namespace, payload.project)  
-  
-  set project = payload.project
-  set flags = payload.flags  
-  
-  set ^CacheTemp.XPort.Queue(project, "running") = 1
-  set ^CacheTemp.XPort.Queue(project, "stats", "page") = page
-  set ^CacheTemp.XPort.Queue(project, "stats", "count") = count
-  
-  while 1 {
-    set list = ##class(XPort.Util.NamespaceCall).ListProjectItems(namespace, payload.project, page, 20)
-    set items = list.items
-    
-    if items.%Size() = 0 {
-      set ^CacheTemp.XPort.Queue(project, "stats", "percent") = $System.SQL.FLOOR((100 * (page * 20)) / count)
-      quit
-    }
-        
-    set paths = []
-    set it = items.%GetIterator()
-    
-    while it.%GetNext(.index, .item) { 
-      do paths.%Push(##class(Port.Util).ItemToPath(item.name)) 
-    }
-        
-    set p = { "items": (paths), "flags": (flags) }
-    set response = ##class(XPort.API.Projects.Items).CompileItems(namespace, project, p)
-    set ^mtempXPort("aaa") = response
-    
-    do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, response)
-    
-    set ^CacheTemp.XPort.Queue(project, "stats", "percent") = $System.SQL.FLOOR((100 * (page * 20)) / count)
-    
-    while $isobject(str) && 'str.AtEnd {
-      set ^CacheTemp.XPort.Queue(payload.project, "response", page) = $get(^CacheTemp.XPort.Queue(payload.project, "response", page))_str
-    }
-    
-    set page = page + 1
-  }
-  
-  set ^CacheTemp.XPort.Queue(payload.project, "running") = 0
-  quit
-]]></Implementation>
-</Method>
-
-<Method name="RemoveQueue">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>project:%String</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  set existed = $data(^CacheTemp.XPort.Queue(project))
-  return { "killed": (existed) }
-]]></Implementation>
-</Method>
-
-<Method name="GetStats">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>project:%String</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  if '$data(^CacheTemp.XPort.Queue(project)) {
-    return %frontier.ThrowException("No compilation tasks were queued for this project.", ..#HTTP404NOTFOUND)
-  }
-  
-  return {
-    "page": (^CacheTemp.XPort.Queue(project, "stats", "page")),
-    "percent": (^CacheTemp.XPort.Queue(project, "stats", "percent")),
-    "count": (^CacheTemp.XPort.Queue(project, "stats", "count"))
   }
 ]]></Implementation>
 </Method>
@@ -1389,7 +1174,7 @@ This utility is used to handle file deletions from the server along with removin
 
 <Method name="RetrieveItemSourceCode">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,itemName:%String,*isBinary:%Boolean="",*lastModified:%String=""</FormalSpec>
+<FormalSpec>namespace:%String,itemName:%String,encoding:%String,*isBinary:%Boolean="",*lastModified:%String=""</FormalSpec>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
   #dim stream As %Stream.GlobalCharacter
@@ -1397,9 +1182,6 @@ This utility is used to handle file deletions from the server along with removin
 
   set externalPath = ##class(Port.Util).ItemToPath(itemName)
   set pathType = ##class(Port.Util).GetPathType($$$LPadSlash(externalPath))
-  
-  set publicFileOTT = ##class(Port.Configuration).GetPublicFileOutputTranslateTable()  
-  set routineOTT = ##class(Port.Configuration).GetRoutineOutputTranslateTable()
   
   $$$ChangeNamespace(namespace)
 
@@ -1423,7 +1205,7 @@ This utility is used to handle file deletions from the server along with removin
     set lastModified = $$$ToISODate(##class(%RoutineMgr).TS(itemName))
     
     if 'isBinary {
-      set csp.TranslateTable = publicFileOTT
+      set csp.TranslateTable = encoding
     } else {
       set csp.TranslateTable = "RAW"
     }         
