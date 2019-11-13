@@ -49,8 +49,9 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
 
 ClassMethod PreviewDocument(namespace As %String, encoding As %String) As %DynamicObject
 {
-  set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
+  set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")  
   set itemName = ##class(Port.Util).PathToItem(match, namespace)
+  set encoding = ##class(%Net.Charset).GetTranslateTable(encoding)
   set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary)
   set ext = $piece(itemName, ".", *)  
   return { "binary": ($$$FormatBoolean(binary)), "preview": (code), "encoding": (encoding) }

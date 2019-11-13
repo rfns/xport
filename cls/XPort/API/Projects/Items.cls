@@ -131,7 +131,9 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve the origin '"_file.path_"' to a valid item name. Are you sure that '"_fileName_"' is a valid '"_type_"' type?"))
 
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName,,namespace)
-      if conflicts '= "" $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
+      if conflicts '= "" {
+	      $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
+      }
 
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
       set itemExists = project.Items.IsDefined(itemId)
@@ -149,8 +151,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
         $$$ThrowStatus($$$ERROR($$$GeneralError, "File is empty."))
       }
 
-      do ##class(XPort.Util.NamespaceCall).SetItemLock(namespace, itemName, 1)
-
       $$$CheckLegacySourceControl(callLegacySourceControl)
 
       if ##class(Port.Util).IsRoutine(itemName) || (itemType = "CSP") {
@@ -167,7 +167,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
             set routine.Code.StreamFormatWrite = 0
           } else {
             set routine.Code.LineTerminator = $$$SourceLineTerminator
-            set routine.Code.TranslateTable = file.encoding.in
+            set routine.Code.TranslateTable = ##class(%Net.Charset).GetTranslateTable(file.encoding.in)
           }
           
           if extension = "CSP" || (extension = "CSR") {
@@ -186,7 +186,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
         set stream = ##class(%Stream.FileCharacter).%New()
         set stream.LineTerminator = $$$SourceLineTerminator
-        set stream.TranslateTable = file.encoding.in
+        set stream.TranslateTable = ##class(%Net.Charset).GetTranslateTable(file.encoding.in)
         $$$ThrowOnError($$WriteToStream(stream))
 
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName_".CLS", stream))
@@ -200,7 +200,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)      
       
       if binary = 1 || (file.refresh '= 1) set code = []
-      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding.out)
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, ##class(%Net.Charset).GetTranslateTable(file.encoding.out))
 
       do publishedItems.%Push({
         "name": (itemName),
@@ -212,8 +212,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       set error.itemName = itemName
       do errorOnPublish.%Push(error)
     }
-
-    do ##class(XPort.Util.NamespaceCall).SetItemLock(namespace, itemName, 0)
   }
 
   return {
@@ -348,7 +346,8 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
         $$$ThrowStatus($$$ERROR($$$GeneralError, "Item "_itemName_" is not present in the project '"_%frontier.RouteParameters("project")_"' or does not exist."))
       }
       
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, file.encoding, .binary, .lastModified)
+      set encoding = ##class(%Net.Charset).GetTranslateTable(file.encoding.out)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary, .lastModified)
 
       do result.success.%Push({
         "name": (itemName),
