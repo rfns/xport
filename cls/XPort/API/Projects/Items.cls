@@ -194,7 +194,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
         if '$extract($$$ucase(itemName), *-2, *) = "CLS" {
           set itemName = itemName_".cls"
         }
-
+        set compileList(itemName) = ""
         $$$ThrowOnError(##class(%Compiler.UDL.TextServices).SetTextFromStream(namespace, itemName, stream))
       }
 

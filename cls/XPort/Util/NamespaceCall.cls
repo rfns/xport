@@ -252,7 +252,7 @@ ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, en
       $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Item '%1' has an invalid application path or doesn't belong to namespace %2.", itemName, namespace)))
     }
 
-    set isBinary = $select(isBinary '= "" : isBinary, 1: ..IsBinary(ext))
+    set isBinary = ..IsBinary(ext)
     set lastModified = $$$ToISODate(##class(%RoutineMgr).TS(itemName))
 
     if 'isBinary {
