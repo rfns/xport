@@ -47,9 +47,19 @@ ClassMethod DeleteItem(namespace As %String, itemName) As %Status
 {
   $$$ChangeNamespace(namespace)
   set sc = ##class(%RoutineMgr).Delete(itemName)
+  
   if $$$ISERR(sc) {
-    $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item '"_itemName_ "' because it doesn't exist on the server."))
+    $$$ThrowStatus($$$ERROR($$$GeneralError, $System.Status.GetErrorText(sc)))
   }
+}
+
+ClassMethod RemoveItem(namespace As %String, project As %String, itemName) As %Status
+{
+  $$$ChangeNamespace(namespace)
+  
+  set project = ..GetProject(namespace, project)
+  $$$ThrowOnError(project.RemoveItem(itemName))
+  $$$ThrowOnError(project.%Save())
 }
 
 ClassMethod ListProjects(namespace As %String) As %DynamicArray

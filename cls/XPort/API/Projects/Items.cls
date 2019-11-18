@@ -37,7 +37,8 @@ ClassMethod DeleteItems(namespace As %String, projectName As %String(ALIAS="proj
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type, namespace)
       if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))
 
-      do ##class(XPort.Util.NamespaceCall).DeleteItem(namespace, itemName)
+      do ##class(XPort.Util.NamespaceCall).RemoveItem(namespace, project.Name, itemName)
+      do ##class(XPort.Util.NamespaceCall).DeleteItem(namespace, itemName)      
       do successOnDelete.%Push(itemName)
     } catch ex {
       set error = ##class(Frontier.Exception).ToDynamicObject(ex)
