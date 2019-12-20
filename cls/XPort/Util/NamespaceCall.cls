@@ -58,8 +58,26 @@ ClassMethod RemoveItem(namespace As %String, project As %String, itemName) As %S
   $$$ChangeNamespace(namespace)
   
   set project = ..GetProject(namespace, project)
+  
+  do EnsureNoPackages(.removed)
+  if removed quit $$$OK
+  
   $$$ThrowOnError(project.RemoveItem(itemName))
   $$$ThrowOnError(project.%Save())
+  
+EnsureNoPackages(removed)
+	set removed = 0
+	if $$$ucase(itemName) '[ "CLS" quit
+	
+	for i=1:1:$length(itemName,".") - 1 {
+		set parent = $piece(itemName,".", 1, i)
+		if project.Items.FindObjectId($$$FormatText("%1||%2||PKG", project.Name, parent)) {
+			do project.RemoveItem(parent_".PKG")
+			do project.%Save()
+		}
+	}
+	
+	quit
 }
 
 ClassMethod ListProjects(namespace As %String) As %DynamicArray

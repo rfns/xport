@@ -9,7 +9,7 @@
 </Parameter>
 
 <Parameter name="APIVERSION">
-<Default>0.14.2</Default>
+<Default>0.14.3</Default>
 </Parameter>
 
 <XData name="UrlMap">
@@ -980,8 +980,26 @@ This utility is used to handle file deletions from the server along with removin
   $$$ChangeNamespace(namespace)
   
   set project = ..GetProject(namespace, project)
+  
+  do EnsureNoPackages(.removed)
+  if removed quit $$$OK
+  
   $$$ThrowOnError(project.RemoveItem(itemName))
   $$$ThrowOnError(project.%Save())
+  
+EnsureNoPackages(removed)
+	set removed = 0
+	if $$$ucase(itemName) '[ "CLS" quit
+	
+	for i=1:1:$length(itemName,".") - 1 {
+		set parent = $piece(itemName,".", 1, i)
+		if project.Items.FindObjectId($$$FormatText("%1||%2||PKG", project.Name, parent)) {
+			do project.RemoveItem(parent_".PKG")
+			do project.%Save()
+		}
+	}
+	
+	quit
 ]]></Implementation>
 </Method>
 
@@ -1335,7 +1353,7 @@ StreamToArray(stream)
 ]]></Routine>
 
 
-<Project name="xport" LastModified="2019-11-18 11:38:58.302713" Target="test5^xporttest" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="xport" LastModified="2019-11-26 15:49:16.006317" Target="##class(XPort.Util.NamespaceCall).RemoveItem(&quot;DEV2&quot;, &quot;rconnect&quot;, &quot;JQX.ProxyObject.CLS&quot;)" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="XPort.API" type="CLS"></ProjectItem>
     <ProjectItem name="XPort.API.Documents" type="CLS"></ProjectItem>
@@ -1346,5 +1364,8 @@ StreamToArray(stream)
     <ProjectItem name="XPort.Util.NamespaceCall" type="CLS"></ProjectItem>
     <ProjectItem name="xport.INC" type="MAC"></ProjectItem>
   </Items>
+  <BreakPoints>
+    <BreakPoint Routine="XPort.Util.NamespaceCall.1.INT" Offset="234"></BreakPoint>
+  </BreakPoints>
 </Project>
 </Export>
