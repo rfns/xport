@@ -3,5 +3,6 @@
   "xport.core.enabled": true,
   "xport.remote.host": "http://localhost:52773",
   "xport.remote.namespace": "IRISAPP",
-  "xport.compiler.flags": "/compile/display=error"
+  "xport.compiler.strategy": "Single",
+  "xport.compiler.flags": "ck"
 }

@@ -3,7 +3,7 @@ Class XPort.API Extends Frontier.Router
 
 Parameter UseSession = 1;
 
-Parameter APIVERSION = "0.15.0";
+Parameter APIVERSION = "0.16.0";
 
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
