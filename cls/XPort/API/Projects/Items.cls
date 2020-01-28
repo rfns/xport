@@ -199,7 +199,6 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       }
 
       if payload.%IsDefined("flags") && (payload.compile = 1 && ($order(compileList("")) '= "")) {
-        set ^mtempXPort("publish_flags") = payload.flags
         $$$ThrowOnError(##class(XPort.Util.NamespaceCall).CompileList(namespace, .compileList, payload.flags_"/nodisplay"))
       }
 
