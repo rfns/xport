@@ -33,6 +33,9 @@ ClassMethod OnSetup() As %Status
   do %frontier.CORS.Default()
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
 
+  set timeout = %frontier.Request.GetCgiEnv("HTTP_X_CSP_GATEWAY_TIMEOUT")
+  if timeout '= "" set %frontier.Response.Timeout = timeout
+
   return $$$OK
 }
 
