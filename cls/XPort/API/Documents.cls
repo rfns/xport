@@ -10,31 +10,32 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Route Url="/raw/?(.*)?" Strict="false" UseAuth="false" Method="GET" Call="GetRawFile"/>
 <Route Url="/preview/(.*)?" Strict="false" Method="GET" Call="PreviewDocument" />
 <Route Url="/references" Method="GET" Call="GetDocumentReferences" />
+<Route Url="/list" Method="GET" Call="ListItems" />
 </Routes>
 }
 
 ClassMethod GetRawFile(namespace As %String) As %Status
 {
-  
+
   set path = $$GetWebApplicationServingPath(.webApp)
   return %frontier.Files.ServeFile(path, "raw")
-  
+
 GetWebApplicationServingPath(webApp)
   // Makes sure we don't fetch the /public part
   set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
-  if $extract(match, 1, 7) = "/public" set match = $replace(match, "/public", "") 
-  
+  if $extract(match, 1, 7) = "/public" set match = $replace(match, "/public", "")
+
   new $namespace
   set $namespace = "%SYS"
-  
+
   set r = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 1 Path, Name FROM SECURITY.APPLICATIONS WHERE NAMESPACE = ? AND PATH IS NOT NULL AND ? %STARTSWITH NAME ORDER BY LENGTH(PATH) DESC", namespace, match)
-  
+
   if r.%Next(.sc) {
-    $$$ThrowOnError(sc) 
-    set appName = r.%Get("Name") 
+    $$$ThrowOnError(sc)
+    set appName = r.%Get("Name")
     set appPath = r.%Get("Path")
     return appPath_$replace(match, appName, "")
-  }  
+  }
   return ""
 }
 
@@ -47,12 +48,19 @@ ClassMethod FindDocuments(namespace As %String, pattern As %String, limit As %In
   }
 }
 
+ClassMethod ListItems(namespace As %String, projects As %String, pattern As %String = "") As %DynamicObject
+{
+  set matches = ##class(XPort.Util.NamespaceCall).ListProjectItemsUsingPattern(namespace, projects, pattern)
+  return { "matches": (matches) }
+}
+
 ClassMethod PreviewDocument(namespace As %String, encoding As %String) As %DynamicObject
 {
   set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
   set itemName = ##class(Port.Util).PathToItem(match, namespace)
+  set encoding = ##class(%Net.Charset).GetTranslateTable(encoding)
   set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary)
-  set ext = $piece(itemName, ".", *)  
+  set ext = $piece(itemName, ".", *)
   return { "binary": ($$$FormatBoolean(binary)), "preview": (code), "encoding": (encoding) }
 }
 

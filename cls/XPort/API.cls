@@ -3,7 +3,7 @@ Class XPort.API Extends Frontier.Router
 
 Parameter UseSession = 1;
 
-Parameter APIVERSION = "0.13.0";
+Parameter APIVERSION = "0.15.0";
 
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
@@ -12,12 +12,13 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 <Route Url="/info" Method="GET" UseAuth="false" Call="GetAPIInfo" />
 <Map Prefix="/namespaces/:namespace/projects" Forward="XPort.API.Projects"/>
 <Map Prefix="/namespaces/:namespace/documents" Forward="XPort.API.Documents"/>
+<Map Prefix="/namespaces/:namespace/tasks" Forward="XPort.API.Tasks" />
 </Routes>
 }
 
 ClassMethod OnSetup() As %Status
 {
-  #dim %frontier As Frontier.Context  
+  #dim %frontier As Frontier.Context
 
   // Disables path normalization and tries to resolve using the received path syntax.
   set ^||Port.Internals.Configuration("remote") = 1
@@ -58,12 +59,12 @@ ClassMethod Ping() As %String
 ClassMethod GetAPIInfo() As %DynamicObject
 {
   set name = ##class(XPort.Installer).#NAME
-  
+
   new $namespace
   set $namespace = "%SYS"
-  
+
   do ##class(Security.Applications).Get(name, .d)
-  
+
   return {
     "version": (..#APIVERSION),
     "application": (name),
