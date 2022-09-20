@@ -24,12 +24,15 @@ jobs:
         sudo apt-get install -y dos2unix
     - name: Convert line endings to LF (Unix format)
       run: find app/**/* -type f -exec dos2unix {} \;
+    - name: Parse repository metadata
+      id: repository-metadata
+      run:  |
+        echo "::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}"
+        echo "::set-output name=REPOSITORY_OWNER::$(echo "$GITHUB_REPOSITORY" | awk -F / '{print $1}')"
+        echo "::set-output name=REPOSITORY_NAME::$(echo "$GITHUB_REPOSITORY" | awk -F / '{print $2}' | sed -e "s/:refs//")"      
     - name: Populate version number
       run: |
         sed -i 's/{{PACKAGE_VERSION}}/${{ steps.repository-metadata.outputs.VERSION }}/g' app/cls/XPort/API.cls
-    - name: Parse the tag
-      id: parse-tag
-      run:  echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
     - name: Import this repository and generate XML artifacts
       run: |
         touch $PWD/app/${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}.xml
