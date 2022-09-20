@@ -5,7 +5,7 @@ Class XPort.Util.NamespaceCall [ Abstract ]
 
 ClassMethod IsBinary(ext As %String) As %Boolean
 {
-  if $lf($lfs($$$RoutineGroups_",MD,CSP,CSR,SCSS,LESS,JSX,VUE,CLS,JSON"), ext) return 0
+  if $listfind($listfromstring($$$RoutineGroups_",MD,CSP,CSR,SCSS,LESS,JSX,VUE,CLS,JSON"), ext) return 0
   do ##class(%CSP.StreamServer).FileClassify(ext, .type, .binary)
   return binary
 }
@@ -30,7 +30,7 @@ ClassMethod CompileList(namespace As %String, ByRef compileList As %String = "",
   if qspec [ "/" && (qspec '[ "/nodisplay") set qspec = qspec_"/nodisplay"
   if qspec '[ "/" && (qspec '[ "-d") set qspec = qspec_"-d"
 
-  $$$QuitOnError($System.OBJ.CompileList(.compileList, qspec, .compileErrors))
+  $$$QuitOnError($system.OBJ.CompileList(.compileList, qspec, .compileErrors))
 
   if compileErrors > 0 {
     for c=1:1:compileErrors {
@@ -206,8 +206,18 @@ ClassMethod ExportSelectionToXML(namespace As %String, items As %DynamicArray, e
   $$$ChangeNamespace(namespace)
 
   do DynamicToList(.list)
-  set ^mtempXML = items.%ToJSON()
-  $$$ThrowOnError($System.OBJ.ExportToStream(.list, .stream, "/nodisplay/diffexport", .errlog, encoding))
+
+  set temp = ##class(%File).TempFilename("xml")
+  set stream = ##class(%Stream.FileCharacter).%New()
+  set stream.TranslateTable = ##class(%Net.Charset).GetTranslateTable(encoding)
+  $$$ThrowOnError(stream.LinkToFile(temp))
+
+  set sc = $system.OBJ.ExportToStream(.list, .stream, "/nodisplay/diffexport", .errlog, encoding)
+
+  if $$$ISERR(sc) {
+    do ##class(%File).Delete(temp)
+    $$$ThrowStatus(sc)
+  }
 
   return stream
 
@@ -223,7 +233,7 @@ ClassMethod ListProjectItemsUsingPattern(namespace As %String, projects As %Stri
   $$$ChangeNamespace(namespace)
   set like = ""
   set startswith = ""
-  set projects = $lfs(projects)
+  set projects = $listfromstring(projects)
 
   set args = 1
   set args(1) = projects
@@ -258,8 +268,29 @@ ClassMethod GetDocumentReferences(namespace As %String, expression As %String, p
   return output
 }
 
-ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, encoding As %String, Output isBinary As %Boolean = "", Output lastModified As %String = "") As %Stream.Object
+ClassMethod NormalizeLineBreak(expectedStyle As %String, line As %String) As %String
 {
+  set matchingStyle = ""
+
+  if line [ $char(13, 10) {
+    set matchingStyle = $char(13, 10)
+  } elseif line [ $char(10) {
+    set matchingStyle = $char(10)
+  }
+
+  if expectedStyle = ""  set expectedStyle = matchingStyle
+
+
+  if expectedStyle '= matchingStyle {
+    return $replace(line, matchingStyle, expectedStyle)
+  }
+
+  return line
+}
+
+ClassMethod RetrieveItemSourceCode(namespace As %String, itemName As %String, encoding As %String, lineBreak As %String = "", Output isBinary As %Boolean = "", Output lastModified As %String = "") As %Stream.Object
+{
+
   #dim stream As %Stream.GlobalCharacter
   set code = []
 
@@ -307,9 +338,10 @@ StreamToArray(stream)
 
   while 'stream.AtEnd {
     if 'isBinary {
-      do array.%Push(stream.Read(12000))
+      set line = stream.Read(12000)
+      do array.%Push(..NormalizeLineBreak(lineBreak, line))
     } else {
-      do array.%Push($System.Encryption.Base64Encode(stream.Read(12000), 1))
+      do array.%Push($system.Encryption.Base64Encode(stream.Read(12000), 1))
     }
   }
   return array

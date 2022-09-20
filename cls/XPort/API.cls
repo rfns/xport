@@ -3,7 +3,7 @@ Class XPort.API Extends Frontier.Router
 
 Parameter UseSession = 1;
 
-Parameter APIVERSION = "0.16.0";
+Parameter APIVERSION = "{{PACKAGE_VERSION}}";
 
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/xport" ]
 {
@@ -41,13 +41,13 @@ ClassMethod OnSetup() As %Status
 
 ClassMethod ValidateCredentials(login As %String, password As %String, Output found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
-  set found = $System.Security.Login(login, password)
+  set found = $system.Security.Login(login, password)
   if 'found {
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
 
-  if '$System.Security.CheckUserPermission(login, "%Development", "USE") {
+  if '$system.Security.CheckUserPermission(login, "%Development", "USE") {
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$RequiresRoleForConnection, "%Development")
   }

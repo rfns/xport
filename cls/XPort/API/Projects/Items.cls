@@ -35,7 +35,7 @@ ClassMethod DeleteItems(namespace As %String, projectName As %String(ALIAS="proj
       if itemName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Could not resolve item name using path "_sourcePath))
 
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName, type, namespace)
-      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$lts(conflicts, ", ")))
+      if conflicts '= "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Cannot delete the item "_itemName_" because it's associated to another project. Please check if the following projects depend on it: "_$listtostring(conflicts, ", ")))
 
       do ##class(XPort.Util.NamespaceCall).DeleteItem(namespace, itemName)
       do successOnDelete.%Push(itemName)
@@ -132,7 +132,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
 
       set conflicts = ##class(Port.Util).ListConflicts(project.Name, itemName,,namespace)
       if conflicts '= "" {
-	      $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $lts(conflicts), project.Name))
+        $$$ThrowStatus($$$PERROR($$$CannotSaveConflictingItems, itemName, $listtostring(conflicts), project.Name))
       }
 
       set itemId = ##class(Port.Util).ResolveItemId(itemName, project.Name)
@@ -163,8 +163,9 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
           set binary = $select(file.%IsDefined("binary") : file.binary, 1: ##class(XPort.Util.NamespaceCall).IsBinary(extension))
 
           if binary = 1 {
-            set routine.Code.TranslateTable = "RAW"
+            set routine.Code.TranslateTable = 0
             set routine.Code.StreamFormatWrite = 0
+            set routine.Code.LineTerminator = ""
           } else {
             set routine.Code.LineTerminator = $$$SourceLineTerminator
             set routine.Code.TranslateTable = ##class(%Net.Charset).GetTranslateTable(file.encoding.in)
@@ -178,8 +179,12 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
           set compileList(itemName) = ""
         }
 
+				set previousNamespace = $namespace
+				new $namespace
+				set $namespace = namespace
         $$$ThrowOnError($$WriteToStream(routine.Code))
         $$$ThrowOnError(routine.%Save())
+        set $namespace = previousNamespace
       } elseif type = "CLS" {
         // Both the file name and the class name must match.
         $$$ThrowOnError($$AssertClassDefinitionMatch(itemName))
@@ -205,7 +210,7 @@ ClassMethod PublishItems(namespace As %String, project As %String, payload As %D
       do ##class(XPort.Util.NamespaceCall).AddItem(namespace, project.Name, itemName)
 
       if binary = 1 || (file.refresh '= 1) set code = []
-      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, ##class(%Net.Charset).GetTranslateTable(file.encoding.out))
+      else  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, ##class(%Net.Charset).GetTranslateTable(file.encoding.out), $$$SourceLineTerminator)
 
       do publishedItems.%Push({
         "name": (itemName),
@@ -235,7 +240,7 @@ WriteToStream(stream)
   do stream.Clear()
 
   for i=1:1:source(0) {
-    set chunk = $case(binary, 1: $System.Encryption.Base64Decode(source(i)), : source(i))
+    set chunk = $case(binary, 1: $system.Encryption.Base64Decode(source(i)), : source(i))
     $$$ReturnOnError(stream.Write(chunk))
   }
 
@@ -355,7 +360,7 @@ ClassMethod PickItemSources(namespace As %String, project As %String, payload As
       }
 
       set encoding = ##class(%Net.Charset).GetTranslateTable(file.encoding)
-      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary, .lastModified)
+      set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, "", .binary, .lastModified)
 
       do result.success.%Push({
         "name": (itemName),

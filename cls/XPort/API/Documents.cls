@@ -59,7 +59,7 @@ ClassMethod PreviewDocument(namespace As %String, encoding As %String) As %Dynam
   set match = $$$LPadProvidedSlash(%frontier.Matches(1), "/")
   set itemName = ##class(Port.Util).PathToItem(match, namespace)
   set encoding = ##class(%Net.Charset).GetTranslateTable(encoding)
-  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, .binary)
+  set code = ##class(XPort.Util.NamespaceCall).RetrieveItemSourceCode(namespace, itemName, encoding, "", .binary)
   set ext = $piece(itemName, ".", *)
   return { "binary": ($$$FormatBoolean(binary)), "preview": (code), "encoding": (encoding) }
 }
