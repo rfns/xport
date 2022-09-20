@@ -23,7 +23,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y dos2unix
     - name: Convert line endings to LF (Unix format)
-      run: find ./**/* -type f ! -path "./.*/*" -exec dos2unix {} \;
+      run: find app/**/* -type f -exec dos2unix {} \;
     - name: Populate version number
       run: |
         sed -i 's/{{PACKAGE_VERSION}}/${{ steps.repository-metadata.outputs.VERSION }}/g' app/cls/XPort/API.cls
@@ -42,7 +42,7 @@ jobs:
         -e PORT_CONFIGURATION_PROJECTNAME="${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}" \
         -e PORT_CONFIGURATION_LOGLEVEL=1 \
         -e CI_XML_FLAGS="/exportversion=2016.2" \
-        rfns/iris-ci:0.6.1
+        rfns/iris-ci:0.6.2
     - name: Retrieve the latest asset upload url
       id: release-asset-metadata
       run: |
