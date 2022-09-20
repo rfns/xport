@@ -60,5 +60,5 @@ jobs:
       with:
         upload_url: ${{ steps.release-asset-metadata.outputs.UPLOAD_URL }}
         asset_path: app/${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}.xml
-        asset_name: ${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}-${{ steps.parse-tag.outputs.VERSION }}.xml
+        asset_name: ${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}-${{ steps.repository-metadata.outputs.VERSION }}.xml
         asset_content_type: application/xml
