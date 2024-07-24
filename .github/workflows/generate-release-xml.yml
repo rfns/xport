@@ -37,7 +37,7 @@ jobs:
       run: |
         touch $PWD/app/${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}.xml
         chmod 777 $PWD/app/${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}.xml
-        docker pull ghcr.io/rfns/iris-ci/iris-ci:v0.6.2
+        docker pull ghcr.io/rfns/iris-ci/iris-ci:v0.6.3
         docker run --rm \
         -t --name xml-ci \
         -v $PWD/app:/opt/ci/app \
@@ -46,7 +46,7 @@ jobs:
         -e PORT_CONFIGURATION_PROJECTNAME="${{ steps.repository-metadata.outputs.REPOSITORY_NAME }}" \
         -e PORT_CONFIGURATION_LOGLEVEL=1 \
         -e CI_XML_FLAGS="/exportversion=2016.2" \
-        ghcr.io/rfns/iris-ci/iris-ci:v0.6.2
+        ghcr.io/rfns/iris-ci/iris-ci:v0.6.3
     - name: Retrieve the latest asset upload url
       id: release-asset-metadata
       run: |
