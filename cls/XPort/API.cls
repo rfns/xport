@@ -64,7 +64,7 @@ ClassMethod GetAPIInfo() As %DynamicObject
   new $namespace
   set $namespace = "%SYS"
 
-  do ##class(Security.Applications).Get(name, .d)
+  do ##class(Security.Applications).Get("/xport/api", .d)
 
   return {
     "version": (..#APIVERSION),
