@@ -61,8 +61,6 @@ ClassMethod Ping() As %String
 
 ClassMethod GetAPIInfo() As %DynamicObject
 {
-  set name = ##class(XPort.Installer).#NAME
-
   new $namespace
   set $namespace = "%SYS"
 
@@ -70,7 +68,7 @@ ClassMethod GetAPIInfo() As %DynamicObject
 
   return {
     "version": (..#APIVERSION),
-    "application": (name),
+    "application": "/xport/api",
     "namespace": (d("NameSpace")),
     "dispatcher": (d("DispatchClass"))
   }
